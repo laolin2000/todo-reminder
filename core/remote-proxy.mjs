@@ -23,7 +23,9 @@ export const PROXY = {
   bind: '127.0.0.1',
   upstreamHost: '127.0.0.1',
   upstreamPort: Number(process.env.TODO_REMOTE_UPSTREAM_PORT || 8790),
-  token: <FILL_ME> || '',
+  // 2026-10-14：原为明文常量，上传脱敏时留下裸占位符导致语法错误；
+  // 改为从环境变量读取（未设置即空串，与 README「密钥一律留空」的政策一致）。
+  token: process.env.TODO_REMOTE_TOKEN || '',
 };
 
 export const PROXY_PID_FILE = 'proxy.pid';

@@ -111,7 +111,7 @@ export function boot() {
         remoteStarting: false,      // 正在首次启动(耗时较长, 提示文案不同)
         remoteErr: '',
         remoteSteps: [],            // 诊断逐环节结果
-        _remoteTimer: null,
+        // 2026-10-14: _remoteTimer 随「每 20 秒远程状态轮询」一并移除
         aiMode: 'auto',             // AI 截图模式: auto / timetable / periodtable / todo
         aiPt: false,                // 节次对照表识别结果弹层
         aiPtText: '',
@@ -2747,11 +2747,9 @@ export function boot() {
         const info = await host.api.info().catch(() => null);
         this.desktopInfo = info;
         this.autostartOn = !!info?.autostart;
-        // 远程访问: 首次拉状态; 之后只在设置页打开时轮询(免得白耗)
+        // 远程访问: 首次拉一次状态; 手动「刷新」按钮仍可随时重拉
+        // 2026-10-14：原「设置页打开时每 20 秒自动轮询远程状态」已按用户要求移除。
         this.refreshRemote();
-        this._remoteTimer = setInterval(() => {
-          if (this.settingsOpen) this.refreshRemote();
-        }, 20000);
         // 托盘「连接诊断与修复…」→ 打开设置并跑一次诊断
         try {
           host.onOpenRemoteHelp?.(() => {

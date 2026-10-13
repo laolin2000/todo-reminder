@@ -8,7 +8,8 @@ const BASE = process.env.TODO_SIM_BASE || 'http://127.0.0.1:18800';
 const CFG = {
   baseUrl: 'https://api.deepseek.com/v1',
   model: 'deepseek-v4-flash-vision-exp',
-  apiKey: <FILL_ME>
+  // 2026-10-14：原为明文 Key，上传脱敏时留下裸占位符导致语法错误；改为读环境变量。
+  apiKey: process.env.DEEPSEEK_API_KEY || '',
   periodTable: [
     '第1节 08:50-09:10',
     '第2节 09:15-09:55',

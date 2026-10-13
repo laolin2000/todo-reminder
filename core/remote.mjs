@@ -60,7 +60,7 @@ let guardChild = null;
 let lastError = '';
 let startedAt = 0;
 let onLog = () => {};
-let hbTimer = null;
+// 2026-10-14: hbTimer 随宿主心跳一并移除
 
 export function setLogger(fn) { if (typeof fn === 'function') onLog = fn; }
 function log(msg) { try { onLog('[remote] ' + msg); } catch { /* ignore */ } }
@@ -68,38 +68,18 @@ function log(msg) { try { onLog('[remote] ' + msg); } catch { /* ignore */ } }
 export function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 // ------------------------------------------------------------
-// 宿主心跳: 让守卫能判断"拉起我的那个应用还在不在"。
-// 为什么需要: 应用被**强制结束**(任务管理器/taskkill /F)时, Electron 的
-// before-quit 根本不会跑; 而隧道是 detached 启动的 → 会变成
-// "域名还在、后端已死"的孤儿入口。守卫侧已打补丁(见 shots/patch-guard-host-liveness.mjs),
-// 它每 10 秒检查: 心跳文件过期 **且** 宿主进程不存在 → 自己把隧道收掉并退出。
+// 宿主心跳（2026-10-14 已移除）
+//
+// 原先本模块每 15 秒写一次 host.heartbeat / host.alive，供守卫侧补丁
+// （shots/patch-guard-host-liveness.mjs）判断"拉起我的那个应用还在不在"，
+// 以便在应用被强杀后把孤儿隧道收掉。
+// 按用户要求，这个「存活检查」机制已整体停用：不再有任何进程写心跳文件，
+// 守卫侧也就无法再据此判定孤儿。下面的路径函数与 hostLiveness() 保留，
+// 仅用于诊断显示（此时恒为"未知"）。
 // ------------------------------------------------------------
 export function heartbeatFile() { return path.join(REMOTE.stateDir, 'host.heartbeat'); }
-/** 存活标记: 只要本进程还在照看入口, 它就存在。用于 status() 判断"入口归我管吗" ——
- *  不能拿 guardChild 判断, 因为重启后的新进程并没有持有一个在跑的守卫子进程句柄。 */
+/** 存活标记路径（原先由本进程每 15 秒触碰，现已不再写入）。 */
 export function aliveFile() { return path.join(REMOTE.stateDir, 'host.alive'); }
-
-async function touchHeartbeat() {
-  try {
-    await fs.mkdir(REMOTE.stateDir, { recursive: true });
-    const now = String(Date.now());
-    await fs.writeFile(heartbeatFile(), now, 'utf8');
-    await fs.writeFile(aliveFile(), now, 'utf8');
-  } catch { /* ignore */ }
-}
-
-function startHeartbeat() {
-  if (hbTimer) return;
-  touchHeartbeat();
-  hbTimer = setInterval(touchHeartbeat, 15000);
-  hbTimer.unref?.();
-}
-
-async function stopHeartbeat() {
-  if (hbTimer) { clearInterval(hbTimer); hbTimer = null; }
-  try { await fs.rm(heartbeatFile(), { force: true }); } catch { /* ignore */ }
-  try { await fs.rm(aliveFile(), { force: true }); } catch { /* ignore */ }
-}
 
 /** 宿主存活判定(供诊断显示): 心跳年龄 + 本进程是否在照看入口 */
 export function hostLiveness() {
@@ -258,7 +238,7 @@ async function stopProxy() {
  *   生命周期仍由应用掌控: 正常退出走 core/remote.mjs 的 stop()/stopFast()。 */
 export function spawnGuard({ parentPid = 0 } = {}) {
   if (!existsSync(REMOTE.guardPath)) throw new Error('找不到守卫程序: ' + REMOTE.guardPath);
-  if (parentPid) startHeartbeat();          // 心跳先就位, 守卫一起来就能看到
+  // 2026-10-14: 原「心跳先就位, 守卫一起来就能看到」已移除（不再写入宿主存活标记）
   const child = spawn(process.execPath, guardArgs(), {
     env: guardEnv(parentPid ? { TODO_REMOTE_HOST_PID: String(parentPid) } : {}),
     detached: true,           // 见上: 必须独立存活, 否则宿主被硬杀时守卫一起死
@@ -340,7 +320,7 @@ export function currentLink() {
     ready: !local && !!owner,
     local,
     url: owner && owner.token ? `${base}/?t=${owner.token}` : '',
-    token: <FILL_ME> && owner.token ? String(owner.token).slice(0, 6) + '…' : '',
+    token: owner.token ? String(owner.token).slice(0, 6) + '…' : '',
     createdAt: owner && owner.createdAt ? owner.createdAt : '',
     name: owner && owner.name ? owner.name : '',
   };
@@ -540,7 +520,7 @@ export async function stopFast() {
   try { await fs.rm(proxyPidFile(), { force: true }); } catch { /* ignore */ }
   try { await fs.writeFile(FILE.tunnel(), JSON.stringify({ pid: null, url: null, startedAt: null, desired: false }), 'utf8'); } catch { /* ignore */ }
   try { await fs.rm(FILE.url(), { force: true }); } catch { /* ignore */ }
-  await stopHeartbeat();
+  // 2026-10-14: 心跳已移除, 无需再 stopHeartbeat()
   return report;
 }
 
@@ -586,7 +566,7 @@ export async function stop({ timeoutMs = 14000 } = {}) {
   try { await fs.writeFile(FILE.tunnel(), JSON.stringify({ pid: null, url: null, startedAt: null, desired: false }), 'utf8'); } catch { /* ignore */ }
   try { await fs.rm(FILE.url(), { force: true }); } catch { /* ignore */ }
   await stopProxy();                       // 入口层最后收(隧道已停, 没人再打它)
-  await stopHeartbeat();
+  // 2026-10-14: 心跳已移除, 无需再 stopHeartbeat()
   log('已停止远程访问: ' + JSON.stringify(report));
   return report;
 }
@@ -691,16 +671,17 @@ export async function check({ upstreamPort = 8790, publicTimeoutMs = 12000 } = {
     pre.problems.length ? pre.problems.map((p) => p.name).join(', ') + ' 缺失' : '齐备',
     pre.problems.map((p) => p.fix).join(' ; '));
 
-  // 2b) 守卫是否带「宿主存活检查」补丁 —— 没有这个补丁, 应用被强杀后会留孤儿隧道
+  // 2b) 守卫的「宿主存活检查」补丁
+  // 2026-10-14：宿主心跳已按用户要求移除，本应用不再写存活标记，
+  // 因此这一项无法再判定"当前是否有人照看入口"，仅如实报告补丁是否装上。
   let patched = false;
   try {
     const src = readFileSync(REMOTE.guardPath, 'utf8');
     patched = src.includes('TODO_HOST_LIVENESS_PATCH');
   } catch { /* ignore */ }
-  const lv = hostLiveness();
-  add('宿主存活保护', patched && lv.managedByMe,
-    patched ? (lv.managedByMe ? `已启用(存活标记 ${Math.round((lv.aliveAgeMs || 0) / 1000)} 秒前)` : '补丁已装, 但当前没有本应用在照看入口') : '守卫缺少宿主存活检查补丁',
-    '应用被强制结束时会留下孤儿隧道 —— 运行 node shots/patch-guard-host-liveness.mjs 打补丁; 若显示"没有本应用照看"则点「开启远程访问」');
+  add('宿主存活保护', false,
+    patched ? '补丁已装，但宿主心跳机制已于 2026-10-14 移除 —— 该保护实际不生效' : '守卫缺少宿主存活检查补丁（心跳机制已移除，此项已无意义）',
+    '应用被强制结束时会留下孤儿隧道；原先靠宿主心跳 + 守卫补丁自动回收，现需手动停止远程访问');
 
   // 3) 守卫
   const portUp = await isPortListening();

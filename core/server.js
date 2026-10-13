@@ -749,20 +749,13 @@ ${apks.length ? '<ul style="padding-left:20px">' + apks.map(row).join('') + '</u
     if (!url.startsWith('/ws')) { socket.destroy(); return; }
     if (!wsAuthed({ socket, req })) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy(); return; }
     wss.handleUpgrade(req, socket, head, (ws) => {
-      ws.isAlive = true;
-      ws.on('pong', () => { ws.isAlive = true; });
       clients.add(ws);
       ws.send(JSON.stringify({ type: 'hello', at: Date.now() }));
       ws.on('close', () => clients.delete(ws));
     });
   });
-  setInterval(() => {
-    for (const ws of clients) {
-      if (!ws.isAlive) { ws.terminate(); clients.delete(ws); continue; }
-      ws.isAlive = false;
-      try { ws.ping(); } catch { /* ignore */ }
-    }
-  }, 30000).unref();
+  // 2026-10-14：原「每 30 秒 ping/pong 清理死连接」的存活检查已按用户要求移除。
+  // 现在不会主动探测连接是否还活着；断开依赖 TCP/浏览器自身的事件。
 
   function broadcast(msg) {
     const s = JSON.stringify(msg);
