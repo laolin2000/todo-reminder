@@ -1,0 +1,154 @@
+================================================================
+待办提醒(TodoReminder)· 全量交接文档(给新对话快速续作)
+生成时间: 2026-09-07 | 由旧对话总结生成 | 废弃原对话前必存
+================================================================
+
+【一、这是什么】
+一个“个人待办 + 课程表/时段 + AI 识图”跨端工具。三个形态共用一套 Web UI:
+ 1. Windows 桌面(Electron + 内置服务器 127.0.0.1:8790,含系统通知提醒)
+ 2. 手机浏览器连电脑网页(需电脑在线 + Tailscale/局域网)
+ 3. 【手机一体包 APK】= 内嵌整套 Web 页面 + 手机本地服务器(127.0.0.1:8790)
+    数据存手机本地且【手机为主】,APK 意义=拿系统通知/精确闹钟权限;
+    UI 完全本地运行(已用飞行模式实测),卡顿与网络无关,只与渲染有关。
+
+【二、工程位置与目录】
+项目根: C:\Users\<you>\Desktop\DSHStool\TodoReminder
+  web/                  唯一 Web 代码源(index.html/js/app.js、js/api.js 引擎、js/model.js、css/app.css)
+  core/server.js        桌面/网页服务端(Express; /api/*、WS、AI 代理); 桌面 core/standalone.js 独立启动
+  core/storage.js       桌面数据层(normalizeTodo / nextOccurrenceMs / Store LWW)
+  android-web/          手机一体包 Android 工程(app/src/main/java=Kotlin+Java;
+                        LocalServer.kt=NanoHTTPD 本地服务器; AiKit.kt=手机 AI;
+                        MainActivity.java=WebView 壳; data/*.kt=手机数据层)
+  android-web/app/src/main/assets/web/  = 内嵌网页(发布前用 robocopy 从 web/ MIR 同步)
+  scripts/              构建与自测脚本(见下)
+  android-sim/          安卓端模拟器(把真 LocalServer/AiKit 编译到 JVM 跑,端口 18792)
+  dl/ + %APPDATA%\待办提醒\downloads\  APK 双份 + 说明-手机一体包.txt
+  shots/、DSHStool\轨迹重叠截图、DSHStool\安卓模拟-全流程验证  截图/证据
+  DSHStool\待办提醒-HANDOFF…txt(本文件)
+
+【三、真实数据(电脑端,勿误改)】
+  %APPDATA%\待办提醒\data\{todos.json,periods.json,ai.json,config.json}
+  当前: 25 待办/21 活跃; 时段: 图书馆(08-20,周一~五) + 两个合并 DSK:
+   DSK 高峰期=09:00-12:00、14:00-18:00(色槽3); DSK 低谷期=12:00-14:00、
+   18:00→次日09:00 跨午夜(色槽4); 均周一~五。旧 4 个 DSK 分段已置墓碑。
+  连接码: 7m1bRHHkY6KU   电脑 Tailscale: 100.119.164.72:8790
+  备选地址: 172.20.10.3:8790、192.168.160.1:8790
+
+【四、AI 配置(电脑/手机一致)】
+  baseUrl https://api.deepseek.com/v1  (/v1 是规范路径,不是模型版本!)
+  model deepseek-v4-flash-vision-exp  key <API_KEY_REMOVED>
+  periodTable 11 行(第1节 08:50-09:10 … 第11节 20:10-20:50)
+  courseFix 周三|大数据导论|18:50-19:55
+  AI 四模式: auto(自动)/ timetable(专注课表)/ periodtable(节次表,可改存)/
+             todo(日常) — 请求体带 mode 字段,三端(server/AiKit/web)已同步实现。
+  注意: DeepSeek 官方仅文本模型,该视觉模型实测可用; 回包正文可能在 reasoning_content(已兜底)。
+
+【五、待办数据模型(新增字段,跨端一致)】
+  关键字段: id/title/notes/location/dueAt/importance(0-2)/materials/durationMin/
+  slotId/independent/status/remindBeforeMin/repeat(none|daily|weekly|monthly)/
+  repeatWeekdays(1..7 数组,每周多选)/repeatMonthDays(1..31 数组,每月多选)/
+  fuzzy/createdAt/updatedAt/deleted
+  重复语义: daily+1天; weekly=所选星期最近一次(空数组=沿用 dueAt 星期);
+            monthly=所选日号最近一次(空=沿用 dueAt 日号,短月顺延)。
+  同构实现: web/js/model.js 与 core/storage.js 与 android data/Todo.kt 三处一致。
+
+【六、版本与近期发布史(手机 APK versionCode/名称)】
+  v1.0.22(23): 修保存按钮 saving 不复位(白屏类“保存中”) ←曾真凶
+  v1.0.23(24): 轨迹时段重叠自动分行 + 修复时段段字段错位(startMin/endMin)
+  v1.0.24(25): 多日连续时间轴(1/2/3/5/7天)+刻度自适应抽稀+重叠分行+空闲态等
+  v1.0.25(26): WebView 渲染进程崩溃自动重载(白屏自愈)+Vue 渲染错误记 errs(V:)
+  v1.0.26(27): 崩溃留痕([native] renderer-gone)、防循环、渲染优先级、诊断含本地日志
+  v1.0.27(28): 诊断“复制全部”(引擎 JSON 含 todos/periods/conn/probe/errs/perf)
+  v1.0.28(29): 崩溃后软件渲染回退再重载(白屏 GPU bug 解药)
+  v1.0.29(30): ★白屏根因修复: computed curPeriodSeg 被当函数调(curSegLabel/
+               curPeriodLeftMin 用 this.curPeriodSeg() → 去掉括号)
+  v1.0.30(31): AI 截图四模式(自动/课表/节次表/日常) + 节次表可改存
+  v1.0.31(32): 流畅性: pushDirty 并行、课表批量提交 commitMany、软渲染20秒后
+               自动恢复硬件加速
+  v1.0.32(33): 整页按分钟刷新(原20秒)、🚀流畅模式开关(html.lite 关阴影动效)、
+               操作耗时埋点 window.__perf(诊断 perf 行)
+  v1.0.33(34): 保存回包增量合并(_applyMerge),不再整表重建/整页刷新
+  v1.0.34(35): 保存即时化:本地先生效即关编辑器,后台推送失败只提示一次且自动
+               重试(实测 4-8ms); 引擎 commit/commitMany 不再 await pushDirty
+  v1.0.35(36): 重复参数:每周选周几/每月选几号(单选版)
+  v1.0.36(37): AI 日常结构化:地点进 location、每周/每月/每天进 repeat+dueIso,
+               不再塞进 notes(提示词三端已强调; 实测“每周三19:00 市游泳馆”→
+               repeat=weekly、location=市游泳馆、dueAt=下周三19:00)
+  v1.0.37(38): ★每周/每月重复多选(repeatWeekdays/repeatMonthDays 数组),三端模型
+               +下次触发算法同构,UI=周几 chips 多选 / 1-31 号宫格多选,
+               列表标签如「每周一、三、五」「每月1日、15日」
+  当前最新: v1.0.37 | SHA-256 9C5DE52D3CDC229A6CFAE40755B4FAF7972BEB059E01DDAE028EB1BA98D9678E
+  发布流程: 改 web/ 与/或 android-web → (bump build.gradle versionCode/Name)
+            → robocopy web → android-web\app\src\main\assets\web /MIR
+            → gradle assembleDebug(JAVA_HOME=%USERPROFILE%\.todo-tools\jdk17,
+             gradle=%USERPROFILE%\.todo-tools\gradle-8.6\bin\gradle.bat)
+            → 拷 app-debug.apk 到 dl\ 与 %APPDATA%\待办提醒\downloads\ 双份
+            → 更新说明-手机一体包.txt(两处)+ SHA-256 → 验证 /api/phone/update
+  注意: 电脑桌面内核需【重启桌面程序】才加载新 server.js/AiKit 逻辑;
+        网页/UI 改动刷新即生效(8790 直接读 web/)。
+
+【七、当前状态】
+  电脑端: 桌面程序正在运行(8790 健康,25/21)。若掉线可重新启动:
+          cd 项目根 && node_modules\electron\dist\electron.exe .
+  手机端: 最新 v1.0.37 已发布; 用户尚未实机复验的项=v1.0.34-37 手感/多选/AI。
+  模拟窗: 安卓模拟服务器(android-sim,18792)+ 390×844 活窗口可随时由助手拉起;
+          真 LocalServer+同页面,用于回归与截图(输出进 DSHStool\安卓模拟-全流程验证)。
+
+【八、用户关键偏好与体验反馈(重要)】
+  1. 只维护 web/ 单套代码,手机页面=同一套(assets 同步)。
+  2. 数据与识别以【手机为主】; 手机本地先落盘,电脑同步是手动的。
+  3. 界面: 手机触摸即点(无鼠标箭头/长按菜单隐藏); 简洁美观、同色系协调。
+  4. 白屏/卡顿史: 曾因 computed 误当函数整页白屏(已修);“改数据卡一下”经
+     增量合并+保存即时化处理;用户仍称“不够流畅”——若再优化,方向:
+     列表局部渲染/增量虚拟化,并用诊断 perf 行与 🚀流畅模式定位(先请用户
+     复制诊断文本再动)。
+  5. 用户常以微信传物发图到 Downloads(如 1000009717.jpg),或直接粘贴文本。
+  6. 验证风格: 先模拟窗实测+截图放进工作区,截图命名 1-/2- 前缀便于找。
+
+【九、未完结计划 / 下一轮候选(按优先级)】
+  A. 等用户实机确认 v1.0.37 手感与多选重复; 收集 ⚙诊断(含 perf)若仍卡顿。
+  B. AI 扩展: 识别“每周一三五”多选自动勾选(当前单日锚点); 或把“带泳镜毛巾”
+     之类拆进 materials; 周期跨度“每 N 天/每两周”等进阶重复。
+  C. 若卡顿复报: 列表虚拟滚动/增量渲染、避免整页重绘; 用诊断 perf 数据驱动。
+  D. 电脑端重启后确认 AI 四模式生效; 必要时把桌面内核也升版。
+  E. 手机端新功能都走: 模拟回归 → 截图确认 → bump → 构建 → 双份部署 → 说明。
+
+【十、踩坑与禁忌(新对话必读)】
+  - PowerShell 里中文 JSON 会被按 GBK 发送而乱码: 用 node/UTF-8 脚本或 write 工具。
+  - electron 命令行传“路径样式的多余参数”会启动即崩: 改用环境变量传参。
+  - 模板串里 \n 会被提前转义成真换行,注入页面代码语法崩: 用 String.fromCharCode(10)。
+  - Vue computed 之间引用绝不能带括号(此 bug 造成整页白屏,已修两处,勿再犯)。
+  - v-for 与 v-if 不能同元素(Vue3 优先 v-if,会用未定义变量)。
+  - LocalServer 请求体必须只按 Content-Length 读(keep-alive 下读到 EOF 会死锁),
+    并按 UTF-8 解码(parseBody 默认解码会乱码); 响应统一 Connection: close。
+  - prepareWebDir 版本号感知: 升级后自动整包刷新 filesDir/web(勿改回“只解压一次”)。
+  - 别在用户真实数据(8790/%APPDATA%)上乱写; 试验一律走隔离实例或 android-sim。
+  - 白屏相关字段: MainActivity 的 onRenderProcessGone 自愈/防循环/软渲染回退
+    20 秒自动恢复硬件; 崩溃留痕在 files/local-log.txt([native] renderer-gone)。
+  - 引擎细节: localStorage tr:v1:{todos,periods,meta,token}; __NO_WS__ 模式无 WS;
+    window.__errs(错误)、window.__perf(耗时)在诊断信息中可复制。
+  - 一键更新: /api/phone/update 匹配 todo-reminder-phone-vX.Y.Z.apk 且要求
+    versionCode 严格递增; Android8+ 需“安装未知应用”授权(已引导)。
+
+【十一、常用脚本速查(在项目根执行)】
+  模拟/回归(推荐先跑):
+   android-sim 服务端(真手机服务端代码): 见 android-sim/README思路(类 java -cp … SimHostKt, 端口18792)
+   node core/standalone.js(TODO_PORT=18800 临时实例; 配 AI: node scripts\sim-ai-write.mjs)
+   驱动(均 electron, 参数用环境变量 SIM_URL/SIM_OUT 等):
+     scripts/sim-full-flow.cjs        全流程回归(横幅/切换/新建/编辑/删除/多日轨迹)
+     scripts/sim-ai-modes-ui.cjs      AI 四模式 UI 回归
+     scripts/sim-trace-shot.cjs       轨迹截图(轴长/缩放/滚动可控)
+     scripts/sim-live-window.cjs      可交互 390×844 模拟窗(不自动退出)
+   种子: scripts/sim-seed-full.mjs / sim-seed-dsk-merge.mjs / sim-seed-trace.mjs
+   真实 e2e: scripts/test-ai-parse.mjs(8790)、test-ai-modes.mjs(改端口)
+  桌面 QA: scripts/qa-server.mjs(独立实例自动全检)
+  生成 APK: 见【六】发布流程; scripts/build-apk.ps1 是旧原生版,勿用于一体包。
+
+【十二、截图/证据位置速查】
+  DSHStool\轨迹重叠截图\           1-低谷跨夜-近景/全景 等(用户验收图)
+  DSHStool\安卓模拟-全流程验证\    全流程/AI模式/日常识别/模拟窗 截图与 json
+  shots\                            过程证据(repeat-param.json、save-perf.json、probe-page.log 等)
+
+================================================================
+(完) 新对话开场可让 AI 读此文件,并附上用户最新一条指令即可续作。
+================================================================

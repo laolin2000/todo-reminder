@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 一键更新下载目录(cache/update/) -->
+    <cache-path name="update" path="update/" />
+</paths>

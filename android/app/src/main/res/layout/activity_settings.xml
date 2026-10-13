@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="8dp"
+        android:paddingVertical="4dp">
+
+        <ImageButton
+            android:id="@+id/btnBack"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="返回"
+            app:srcCompat="@drawable/ic_close"
+            android:scaleType="centerInside" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/setting_title"
+            android:textSize="17sp"
+            android:textStyle="bold"
+            android:textColor="@color/ink" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingHorizontal="18dp"
+            android:paddingBottom="28dp">
+
+            <TextView style="@style/Label" android:text="@string/setting_conn" />
+            <TextView
+                android:id="@+id/tvState"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="12.5sp"
+                android:textColor="@color/ink3"
+                android:lineSpacingExtra="3dp" />
+
+            <EditText
+                android:id="@+id/etUrl"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_input"
+                android:hint="@string/setting_url_hint"
+                android:inputType="textUri"
+                android:padding="12dp"
+                android:textSize="13sp" />
+
+            <EditText
+                android:id="@+id/etToken"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_input"
+                android:hint="@string/setting_token_hint"
+                android:inputType="text"
+                android:padding="12dp"
+                android:textSize="13sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="10dp">
+                <Button
+                    android:id="@+id/btnSaveConn"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/btn_save" />
+                <Button
+                    android:id="@+id/btnTest"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/btn_test"
+                    style="?attr/materialButtonOutlinedStyle" />
+            </LinearLayout>
+
+            <TextView style="@style/Label" android:text="提醒(参考 beeCount 式系统通知)" />
+            <Button
+                android:id="@+id/btnNotifyPerm"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/btn_notify_perm"
+                style="?attr/materialButtonOutlinedStyle" />
+            <Button
+                android:id="@+id/btnExactAlarm"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/btn_exact_alarm"
+                style="?attr/materialButtonOutlinedStyle" />
+            <Button
+                android:id="@+id/btnBattery"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/btn_battery"
+                style="?attr/materialButtonOutlinedStyle" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+                <Button
+                    android:id="@+id/btnTestNotify"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/btn_test_notify" />
+                <Button
+                    android:id="@+id/btnTestAlarm"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/btn_test_alarm"
+                    style="?attr/materialButtonOutlinedStyle" />
+            </LinearLayout>
+
+            <TextView style="@style/Label" android:text="软件更新(一键从电脑端下载新版)" />
+            <Button
+                android:id="@+id/btnUpdate"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="检查更新 / 一键更新" />
+            <TextView
+                android:id="@+id/tvUpdateState"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="12.5sp"
+                android:textColor="@color/ink3"
+                android:lineSpacingExtra="3dp" />
+
+            <TextView style="@style/Label" android:text="@string/about_title" />
+            <TextView
+                android:id="@+id/tvAbout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="12.5sp"
+                android:textColor="@color/ink2"
+                android:lineSpacingExtra="3dp" />
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

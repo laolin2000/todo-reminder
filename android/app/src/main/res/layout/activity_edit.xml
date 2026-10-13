@@ -1,0 +1,302 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <!-- 顶栏 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="8dp"
+        android:paddingVertical="4dp">
+
+        <ImageButton
+            android:id="@+id/btnClose"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="关闭"
+            app:srcCompat="@drawable/ic_close"
+            android:scaleType="centerInside" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="新建 / 编辑待办"
+            android:textSize="17sp"
+            android:textStyle="bold"
+            android:textColor="@color/ink" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingHorizontal="18dp"
+            android:paddingBottom="16dp">
+
+            <TextView style="@style/Label" android:text="@string/hint_title" />
+            <EditText
+                android:id="@+id/etTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_input"
+                android:hint="例: 去超市采购"
+                android:inputType="text"
+                android:maxLength="120"
+                android:padding="12dp"
+                android:textSize="16sp" />
+            <LinearLayout
+                android:id="@+id/suggTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingTop="4dp"
+                android:visibility="gone" />
+
+            <!-- 时间 -->
+            <TextView style="@style/Label" android:text="时间与提醒" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/swDue"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="设定时间" />
+                <Button
+                    android:id="@+id/btnPickTime"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minWidth="0dp"
+                    android:text="选择日期时间" />
+                <Button
+                    android:id="@+id/btnClearTime"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minWidth="0dp"
+                    android:text="清除"
+                    style="?attr/materialButtonOutlinedStyle" />
+            </LinearLayout>
+            <TextView
+                android:id="@+id/tvTime"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textSize="14sp"
+                android:textColor="@color/ink" />
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chipQuick"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                app:chipSpacingHorizontal="6dp" />
+
+            <TextView style="@style/Label" android:text="提前提醒" />
+            <Spinner
+                android:id="@+id/spinnerRemind"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="4dp" />
+
+            <!-- 重复触发 -->
+            <TextView style="@style/Label" android:text="重复触发(需先设定时间)" />
+            <Spinner
+                android:id="@+id/spinnerRepeat"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="4dp" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="每天 / 每周(与所选日期同星期几) / 每月(同几号, 短月取月末)。完成后自动排到下一周期, 到点提醒也会按周期重复。"
+                android:textSize="11.5sp"
+                android:textColor="@color/ink3" />
+
+            <!-- 模糊事项 -->
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/swFuzzy"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="🌫 模糊事项(到点/逾期不弹提醒)"
+                android:checked="false" />
+
+            <!-- 重要程度 -->
+            <TextView style="@style/Label" android:text="重要程度" />
+            <RadioGroup
+                android:id="@+id/rgImportance"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+                <RadioButton
+                    android:id="@+id/rbImpLow"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="低" />
+                <RadioButton
+                    android:id="@+id/rbImpMid"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="中"
+                    android:checked="true" />
+                <RadioButton
+                    android:id="@+id/rbImpHigh"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="高" />
+            </RadioGroup>
+
+            <!-- 地点 -->
+            <TextView style="@style/Label" android:text="地点" />
+            <EditText
+                android:id="@+id/etLocation"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_input"
+                android:hint="例: 家附近超市 / 公司 3 楼"
+                android:padding="12dp" />
+            <LinearLayout
+                android:id="@+id/suggLocation"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingTop="4dp"
+                android:visibility="gone" />
+
+            <!-- 时段挂靠 -->
+            <TextView style="@style/Label" android:text="时段(可选, 用于轨迹泳道)" />
+            <Spinner
+                android:id="@+id/spinnerSlot"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_input"
+                android:paddingHorizontal="8dp" />
+
+            <!-- 所需时间 -->
+            <TextView style="@style/Label" android:text="需要时间(分钟)" />
+            <EditText
+                android:id="@+id/etDuration"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_input"
+                android:hint="例: 30 (留空表示不确定)"
+                android:inputType="number"
+                android:padding="12dp" />
+
+            <!-- 材料 -->
+            <TextView style="@style/Label" android:text="所需材料" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+                <EditText
+                    android:id="@+id/etMaterials"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_input"
+                    android:hint="例: 购物袋, 零钱"
+                    android:padding="12dp"
+                    android:imeOptions="actionDone"
+                    android:inputType="text" />
+                <Button
+                    android:id="@+id/btnAddMat"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:minWidth="0dp"
+                    android:text="添加" />
+            </LinearLayout>
+            <LinearLayout
+                android:id="@+id/suggMaterials"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingTop="4dp"
+                android:visibility="gone" />
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chipMats"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                app:chipSpacingHorizontal="6dp" />
+
+            <!-- 独立性 -->
+            <TextView style="@style/Label" android:text="独立性" />
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/swIndependent"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="独立完成(可单独推进)"
+                android:checked="true" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="关闭 = 依赖他人 / 前置条件, 列表会标记 🔗"
+                android:textSize="11.5sp"
+                android:textColor="@color/ink3" />
+
+            <!-- 备注 -->
+            <TextView style="@style/Label" android:text="备注" />
+            <EditText
+                android:id="@+id/etNotes"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_input"
+                android:gravity="top"
+                android:hint="补充说明…"
+                android:minLines="2"
+                android:padding="12dp" />
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- 底部按钮 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="12dp"
+        android:background="@color/bg">
+
+        <Button
+            android:id="@+id/btnDelete"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="删除"
+            android:visibility="gone"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:textColor="@color/bad" />
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <Button
+            android:id="@+id/btnSave"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="保存"
+            style="@style/Widget.Material3.Button"
+            android:paddingHorizontal="28dp" />
+    </LinearLayout>
+</LinearLayout>

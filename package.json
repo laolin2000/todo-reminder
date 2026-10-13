@@ -1,0 +1,24 @@
+{
+  "name": "todo-reminder",
+  "productName": "待办提醒",
+  "version": "0.5.2",
+  "description": "跨端待办事项与提醒 · Windows 桌面(Electron)+ Android(原生)+ 自适应 Web · 局域网 / Tailscale 同步",
+  "type": "module",
+  "main": "electron/main.js",
+  "author": "reskipeer",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "sim": "node scripts/phone-sim.mjs",
+    "server": "node core/standalone.js",
+    "qa:server": "node scripts/qa-server.mjs",
+    "qa:ui": "node scripts/qa-ui.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0"
+  }
+}

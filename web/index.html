@@ -1,0 +1,972 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss: http: https:; font-src 'self'; object-src 'none'; base-uri 'self'">
+<title>待办提醒</title>
+<meta name="theme-color" content="#2F6BFF">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" href="icon.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<!-- 版本号参数(?v=)用于强制刷新缓存: 升级后手机 WebView/浏览器不会再跑旧 js/css -->
+<link rel="stylesheet" href="css/app.css?v=164">
+<script src="js/theme-init.js?v=164"></script>
+<script src="vendor/vue.global.prod.js?v=164"></script>
+</head>
+<body>
+<div id="app" v-cloak>
+  <!-- ===== 顶栏 ===== -->
+  <header class="topbar">
+    <div class="brand" @click="tab='all'">
+      <span class="logo">☑</span>
+      <div class="brandtext">
+        <b>待办提醒</b>
+        <span class="conn" :class="'c-'+conn">
+          <i class="dot"></i>{{ connMeta[0] }}<template v-if="lastSyncText && conn==='synced'"> {{ lastSyncText }}</template>
+        </span>
+      </div>
+    </div>
+    <div class="views">
+      <button :class="{on: viewMode==='list'}" @click="setView('list')">☰ 列表</button>
+      <button :class="{on: viewMode==='trace'}" @click="setView('trace')">⏱ 轨迹</button>
+      <button :class="{on: viewMode==='slots'}" @click="setView('slots')">⏳ 时段</button>
+    </div>
+    <div class="topbtns">
+      <button class="ibtn" title="立即同步" @click="onManualSync">⟳</button>
+      <button class="ibtn" title="设置" @click="openSettings(false)">⚙</button>
+    </div>
+  </header>
+
+  <!-- 需要连接码横幅 -->
+  <div v-if="conn==='auth'" class="authbanner">
+    <span>⚠️ 需要连接码才能同步数据</span>
+    <button class="mini primary" @click="openSettings(true)">去设置</button>
+  </div>
+
+  <!-- ===== 状态标签 ===== -->
+  <nav class="tabs" v-if="viewMode==='list'">
+    <button v-for="t in [['all','全部'],['today','今天'],['todo','未完成'],['done','已完成'],['overdue','已逾期']]"
+            :key="t[0]" :class="{on: tab===t[0]}" @click="tab=t[0]">
+      {{ t[1] }}<span class="cnt">{{ counts[t[0]] || '' }}</span>
+    </button>
+  </nav>
+
+  <!-- ===== 工具栏 ===== -->
+  <div class="toolbar" v-if="viewMode==='list'">
+    <div class="searchwrap">
+      <input v-model="search" placeholder="🔍 搜索标题 / 地点 / 材料…" class="search" type="search">
+      <button v-if="search" class="ibtn" @click="search=''">✕</button>
+    </div>
+    <label class="sel">排序
+      <select v-model="sortBy" title="排序方式">
+        <option value="dueAt">按时间</option>
+        <option value="importance">重要程度</option>
+        <option value="durationMin">所需时间</option>
+        <option value="location">地点</option>
+        <option value="createdAt">创建时间</option>
+      </select>
+    </label>
+    <button class="ibtn dir" :title="'切换排序方向: '+dueTitle" @click="sortDir*=-1">{{ sortDir===1 ? '↑' : '↓' }}</button>
+    <label class="sel">分组
+      <select v-model="groupBy" title="分组方式">
+        <option value="date">按日期</option>
+        <option value="none">不分组</option>
+        <option value="location">按地点</option>
+        <option value="importance">按重要程度</option>
+        <option value="independence">按独立性</option>
+        <option value="status">按状态</option>
+      </select>
+    </label>
+    <button class="ibtn filter" :class="{active: activeFilterCount()>0}" @click="toggleFilter">
+      ⚑{{ activeFilterCount() ? ' '+activeFilterCount() : '' }}
+    </button>
+    <div class="spacer"></div>
+    <button class="primary adddesk" @click="openNew()">＋ 新建待办</button>
+    <button class="mini ai" :disabled="aiBusy || (editorOpen)" title="选一张截图自动识别成待办; 也可复制图片后直接 Ctrl+V" @click="aiPickClick">{{ aiBusy ? '⏳ 解析中…' : '🖼 AI 截图' }}</button>
+  </div>
+  <input type="file" id="aiFilePick" accept="image/*" style="display:none" @change="onAiFileChange($event)">
+  <input type="file" id="aiDetailPick" accept="image/*" style="display:none" @change="onAiDetailChange($event)">
+
+  <!-- AI 截图模式: 自动 / 课表(专注) / 节次表(课表子模式, 可保存为节次对照表) / 日常事项 -->
+  <div class="aimodes" v-if="viewMode==='list'">
+    <span class="aimodes-label">AI 截图模式</span>
+    <button class="chip" :class="{on: aiMode==='auto'}" @click="aiMode='auto'" title="自动判断: 课表或普通待办">自动</button>
+    <button class="chip" :class="{on: aiMode==='timetable'}" @click="aiMode='timetable'" title="专注课表: 只按课表识别, 不当作待办">📅 课表</button>
+    <button class="chip" :class="{on: aiMode==='periodtable'}" @click="aiMode='periodtable'" title="识别“节次时间对照表”, 可核对修改后保存为节次换算依据">⏱ 节次表</button>
+    <button class="chip" :class="{on: aiMode==='todo'}" @click="aiMode='todo'" title="日常事项: 通知/聊天/票证等 → 一条待办">📋 日常</button>
+    <i class="aimode-hint">{{ aiModeDesc() }}</i>
+  </div>
+
+  <!-- 节次对照表识别结果: 可修改后保存 -->
+  <div v-if="aiPt" class="overlay" @click.self="closePt()">
+    <div class="sheet">
+      <header class="sheet-hd">
+        <b>⏱ 节次对照表(识别结果)</b>
+        <button class="ibtn" @click="closePt()">✕</button>
+      </header>
+      <div class="sheet-bd">
+        <p class="tip2">识别到 {{ aiPtRows() }} 行。核对修改后保存 —— 会永久保存在本机与同步数据里(设置→AI 中同步可见), 直到你下次重新录入节次表。</p>
+        <textarea class="grow ptbox" v-model="aiPtText" rows="12" spellcheck="false"></textarea>
+        <div class="row ptbtns">
+          <button class="mini" @click="closePt()">丢弃</button>
+          <button class="mini primary" :disabled="aiBusy" @click="savePtLines()">{{ aiBusy ? '保存中…' : '保存为节次对照表' }}</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 潜在重复: 扫描结果(勾选写入哪些 / 删除哪些) ===== -->
+  <div v-if="ptOpen" class="overlay dedupe" @click.self="ptOpen=false">
+    <div class="sheet">
+      <header class="sheet-hd">
+        <b>🔎 可能重复的事项({{ ptRows.length }})</b>
+        <button class="ibtn" @click="ptOpen=false">✕</button>
+      </header>
+      <div class="sheet-bd">
+        <div class="ptnew">
+          <span class="pttag">本次识别/输入</span>
+          <div class="ptnewbody">
+            <div class="ptline">
+              <span v-for="(p,i) in ptHl((ptNew && ptNew.title) || '')" :key="i" :class="{hl: p.hit}">{{ p.t }}</span>
+              <i v-if="ptDiffText()" class="ptdiff">{{ ptDiffText() }}</i>
+            </div>
+            <div class="ptmeta">
+              🕒 {{ ptWhen(ptNew && ptNew.dueAt) }}
+              <template v-if="ptNew && ptNew.location"> · 📍 {{ ptNew.location }}</template>
+            </div>
+          </div>
+        </div>
+        <p class="tip2">下面是扫描到的 <b>可能重复</b> 的旧事项(已跳过已完成 / 已逾期 / 时间已过)。勾选要 <b>删除</b> 的旧条 —— 不勾的会原样保留。没扫到就不用管, 直接保存即可。</p>
+        <!-- 与“重复机制”事项相似度极高: 只提出, 不动 -->
+        <div v-if="ptConflicts && ptConflicts.length" class="ptconf">
+          <div class="ptconfhd">🔁 发现与「重复机制」事项高度相似(只提醒, 不会动它)</div>
+          <div v-for="c in ptConflicts" :key="c.key" class="ptconfrow">
+            <div class="ptline">
+              <i class="ptscore hot">相似 {{ (c.score*100).toFixed(0) }}%</i>
+              <span v-for="(p,i) in c.hl" :key="i" :class="{hl: p.hit}">{{ p.t }}</span>
+              <i class="ptkind">🔁 {{ c.label }}{{ c.count > 1 ? ' · 共 ' + c.count + ' 条' : '' }}</i>
+            </div>
+            <div class="ptmeta">下次: {{ ptWhen(c.next.dueAt) }}{{ c.next.location ? ' · 📍 ' + c.next.location : '' }}</div>
+            <div class="ptwhy">{{ c.reasons.join(' · ') }}</div>
+            <div class="ptconfbtns">
+              <button class="mini ghost" @click="ptConflictOpen(c)">查看这条</button>
+              <button class="mini danger" @click="ptConflictDeleteOne(c)">删除这一条(需确认)</button>
+            </div>
+          </div>
+          <p class="tip2">这些事项有明确的重复机制(每天/每周/每月/每天目标), <b>不会被自动删除, 也不会进下面的可删列表</b>。若确实是同一件事, 建议改那条的重复规则或删掉这一条实例; 想两边都留就直接忽略。</p>
+        </div>
+        <div v-if="ptRows.length" class="ptrows">
+          <label v-for="r in ptRows" :key="r.key" class="ptrow" :class="{on: r.checked}">
+            <input type="checkbox" v-model="r.checked">
+            <div class="ptbody">
+              <div class="ptline">
+                <span v-for="(p,i) in r.oldHl" :key="i" :class="{hl: p.hit}">{{ p.t }}</span>
+                <i class="ptscore" :class="{hot: r.score>=0.8}">相似 {{ (r.score*100).toFixed(0) }}%</i>
+              </div>
+              <div class="ptmeta">
+                🕒 {{ ptWhen(r.old.dueAt) }}
+                <template v-if="r.old.location"> · 📍 {{ r.old.location }}</template>
+                <template v-if="r.old.materials && r.old.materials.length"> · 🧰 {{ r.old.materials.join('、') }}</template>
+              </div>
+              <div class="ptwhy">{{ r.reasons.join(' · ') }}</div>
+            </div>
+            <button class="mini ghost" title="查看/修改这条旧事项" @click.prevent.stop="ptOpen=false; openEdit(r.old)">编辑</button>
+          </label>
+        </div>
+        <p v-else class="tip2">✅ 没扫到可删除的重复事项{{ (ptConflicts && ptConflicts.length) ? '(仅上方有重复机制提醒)' : '' }}。</p>
+        <div class="row ptbtns">
+          <button class="mini ghost" @click="toggleAllPtRows(true)">全选</button>
+          <button class="mini ghost" @click="toggleAllPtRows(false)">全不选</button>
+          <button class="mini" @click="ptNew = _ptNewItem(); ptRows = _ptScanRows(ptNew, [])">重新扫描</button>
+          <span class="growspace"></span>
+          <button class="mini" @click="ptApplyOldOnly()">都不写入, 只处理旧数据{{ ptCheckedCount() ? ' ('+ptCheckedCount()+')' : '' }}</button>
+          <button class="mini primary" :disabled="saving" @click="ptApplyAndSave()">
+            {{ ptCheckedCount() ? '删 ' + ptCheckedCount() + ' 条旧数据并写入新的' : '都不删, 直接写入新的' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 全库自查: 现有可能互相重复的待办 ===== -->
+  <div v-if="ptTopOpen" class="overlay dedupe" @click.self="ptTopOpen=false">
+    <div class="sheet">
+      <header class="sheet-hd">
+        <b>🧹 全库重复自查({{ ptTopRows.length }} 组)</b>
+        <button class="ibtn" @click="ptTopOpen=false">✕</button>
+      </header>
+      <div class="sheet-bd">
+        <p class="tip2">已跳过已完成 / 已逾期 / 时间已过的条目。每组 <b>点一条保留</b>, 另一条会被删除; 不点则这一组不动。</p>
+        <p v-if="ptTopSkippedRepeat" class="ptconf" style="margin:0 0 8px">
+          🔁 已跳过 {{ ptTopSkippedRepeat }} 条<b>有重复机制</b>的事项(每天/每周/每月/每天目标)—— 它们本来就会有多条实例, 不会被清理。
+        </p>
+        <div v-if="ptTopRows.length" class="ptrows">
+          <div v-for="r in ptTopRows" :key="r.key" class="ptrow keeprow">
+            <div class="ptbody">
+              <div class="ptline">
+                <button class="mini" :class="{primary: r.keep==='a'}" @click="toggleTopKeep(r,'a')">{{ r.keep==='a' ? '保留这条' : '保留 A' }}</button>
+                <span><span v-for="(p,i) in r.aHl" :key="i" :class="{hl: p.hit}">{{ p.t }}</span></span>
+                <i class="ptmeta">{{ ptWhen(r.a.dueAt) }}</i>
+              </div>
+              <div class="ptline">
+                <button class="mini" :class="{primary: r.keep==='b'}" @click="toggleTopKeep(r,'b')">{{ r.keep==='b' ? '保留这条' : '保留 B' }}</button>
+                <span><span v-for="(p,i) in r.bHl" :key="i" :class="{hl: p.hit}">{{ p.t }}</span></span>
+                <i class="ptmeta">{{ ptWhen(r.b.dueAt) }}</i>
+              </div>
+              <div class="ptwhy">相似 {{ (r.score*100).toFixed(0) }}% · {{ r.reasons.join(' · ') }}</div>
+            </div>
+          </div>
+        </div>
+        <p v-else class="tip2">✅ 没有发现互相重复的待办。</p>
+        <div class="row ptbtns">
+          <button class="mini ghost" @click="scanTop()">重新自查</button>
+          <span class="growspace"></span>
+          <button class="mini danger" :disabled="!ptTopRows.some(r=>r.keep)" @click="ptTopApply()">
+            按选择删除({{ ptTopRows.filter(r=>r.keep).length }})
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 筛选面板 ===== -->
+  <div v-if="filterOpen && viewMode==='list'" class="filterpanel">
+    <div class="frow">
+      <span class="flabel">重要程度</span>
+      <button v-for="im in M.IMPORTANCE" :key="im.v" class="chip"
+              :class="{on: impFilter.includes(im.v)}" @click="toggleImp(im.v)">{{ im.label }}</button>
+    </div>
+    <div class="frow">
+      <span class="flabel">独立性</span>
+      <button class="chip" :class="{on: indepFilter==='all'}" @click="indepFilter='all'">全部</button>
+      <button class="chip" :class="{on: indepFilter==='independent'}" @click="indepFilter='independent'">独立</button>
+      <button class="chip" :class="{on: indepFilter==='dependent'}" @click="indepFilter='dependent'">依赖</button>
+    </div>
+    <div class="frow end">
+      <button class="mini" @click="clearFilters">清除筛选</button>
+    </div>
+  </div>
+
+  <!-- ===== 列表 ===== -->
+  <main v-if="viewMode==='list'" class="list" @click.self="filterOpen=false">
+    <template v-if="curPeriodViews.length">
+      <!-- 主页横幅: 正在进行的时段可同时显示多条 -->
+      <div class="nowperiod" v-for="cp in curPeriodViews" :key="cp.p.id" title="查看今日轨迹" @click="setView('trace')"
+           :style="{background: cp.col.soft, borderLeftColor: cp.col.deep}">
+        <span class="pill" :style="{background: cp.col.deep}">⏳ 当前时段</span>
+        <b>{{ cp.p.name }}</b>
+        <span class="nptime">{{ cp.label }}</span>
+        <em>剩 {{ M.fmtDuration(cp.leftMin) }}</em>
+      </div>
+      <div v-if="nextPeriod" class="nowperiod none" title="查看今日轨迹" @click="setView('trace')">
+        <span class="pill gray">⏳ 时段</span>
+        <span class="npnext">之后: {{ nextPeriod.name }} {{ M.fmtMin(M.periodDaySegments(nextPeriod)[0].startMin) }} 开始</span>
+        <span class="npgo">→ 轨迹视图可拖方块改时间</span>
+      </div>
+    </template>
+    <div v-else-if="sortedPeriods.length" class="nowperiod none">
+      <span class="pill gray">⏳ 时段</span>
+      <span v-if="nextPeriod" class="npnext">当前不在时段内 · 下个: {{ nextPeriod.name }} {{ M.fmtMin(M.periodDaySegments(nextPeriod)[0].startMin) }}</span>
+      <span v-else>今日没有时段排期</span>
+      <span class="npgo">→ 轨迹视图可拖方块改时间</span>
+    </div>
+    <div v-if="!grouped.length" class="empty">
+      <div class="emptymark">🗒</div>
+      <p>{{ todos.length ? '没有符合当前筛选的事项' : '还没有待办事项' }}</p>
+      <button class="primary" @click="openNew()">＋ 写第一个待办</button>
+    </div>
+
+    <section v-for="g in grouped" :key="'g'+groupBy+g.key" class="grp">
+      <header class="grphd" @click="collapsed[groupBy+':'+g.key] = !collapsed[groupBy+':'+g.key]">
+        <span class="chev">{{ collapsed[groupBy+':'+g.key] ? '▸' : '▾' }}</span>
+        <span class="glabel">{{ groupLabel(g.key) }}</span>
+        <span class="gcnt">{{ g.count }}</span>
+      </header>
+      <template v-if="!collapsed[groupBy+':'+g.key]">
+        <article v-for="t in g.items" :key="t.id" class="card" :data-imp="t.importance"
+                 :class="{done: t.status==='done', doing: st(t)==='doing', overdue: st(t)==='overdue', exc: t.importance>=3, high: t.importance===2}"
+                 :style="cardLeftStyle(t)"
+                 @click="openEdit(t)">
+          <button class="check" :class="{on: t.status==='done'}" @click.stop="toggleDone(t)"
+                  :title="t.status==='done' ? '标记为未完成' : '标记完成'">✓</button>
+          <div class="body">
+            <div class="trow">
+              <span class="title">{{ t.title }}</span>
+              <span v-if="t.status==='done'" class="tag done">已完成</span>
+              <span v-else-if="st(t)==='doing'" class="tag doing">进行中</span>
+              <span v-else-if="st(t)==='overdue'" class="tag overdue">已逾期</span>
+            </div>
+            <div class="meta">
+              <span v-if="slotById(t.slotId)" class="mk slotb"
+                    :style="slotColorObj(t.slotId) ? {color: slotColorObj(t.slotId).deep, background: slotColorObj(t.slotId).soft} : {}">
+                ⏳ {{ slotById(t.slotId).name }}</span>
+              <span v-if="M.repLabel(t)" class="mk quiet rep">🔁 {{ M.repLabel(t) }}</span>
+              <span v-if="t.fuzzy" class="mk quiet fz">🌫 模糊(不提醒)</span>
+              <template v-if="t.dueAt">
+                <span class="mk due" :class="{late: st(t)==='overdue'}">
+                  🕒 {{ M.fmtDue(t.dueAt) }}
+                  <em v-if="t.status!=='done' && st(t)!=='overdue'">({{ stText(t) }})</em>
+                </span>
+                <span v-if="t.status!=='done' && t.remindBeforeMin>0" class="mk quiet">🔔 提前{{ t.remindBeforeMin }}分</span>
+              </template>
+              <span v-if="t.goal && t.status!=='done'" class="mk goalb">🎯 目标 · {{ goalLeftText(t) }}</span>
+              <span v-if="(!t.dueAt || t.goal) && t.status!=='done'" class="mk eff">💪 {{ M.effort(t.effort).label }}</span>
+              <span v-if="!t.dueAt && t.status!=='done'" class="mk quiet">⌛ 不定时</span>
+              <span v-if="t.location" class="mk">📍 {{ t.location }}</span>
+              <span class="mk imp" :style="{color:M.imp(t.importance).color, background:M.imp(t.importance).bg}">
+                ⭐ {{ M.imp(t.importance).label }}</span>
+              <span v-if="t.durationMin" class="mk">⏱ {{ M.fmtDuration(t.durationMin) }}</span>
+              <span v-if="!t.independent" class="mk dep">🔗 依赖</span>
+              <span v-if="t.materials.length" class="mk mats" :title="t.materials.join('、')">🧰 {{ t.materials.slice(0,3).join('、') }}<template v-if="t.materials.length>3">…</template></span>
+            </div>
+            <p v-if="t.notes" class="notes">{{ t.notes }}</p>
+          </div>
+          <div class="acts" @click.stop>
+            <button class="ibtn" title="标记进行中/未完成" @click="toggleDoing(t)">▶</button>
+            <button class="ibtn" title="删除" @click="removeTodo(t)">🗑</button>
+          </div>
+        </article>
+      </template>
+    </section>
+  </main>
+
+  <button v-if="viewMode==='list'" class="fab" @click="openNew()">＋</button>
+
+  <!-- ===== 轨迹视图(连续多日时间轴: 相邻天时段打通, 横跨 traceDays 天) ===== -->
+  <main v-else-if="viewMode==='trace'" class="tracewrap" @click.self="filterOpen=false">
+    <div class="tracebar">
+      <b class="tday">{{ traceDateLabel }}</b>
+      <span class="tracedate">
+        <button class="mini" :title="'向前翻 ' + (traceDays||1) + ' 天'" @click="traceShift(-(traceDays||1))">‹ 前{{ traceDays || 1 }}天</button>
+        <button class="mini" :class="{primary: traceOff===0}" @click="traceGoToday()">今天</button>
+        <button class="mini" :title="'向后翻 ' + (traceDays||1) + ' 天'" @click="traceShift(traceDays||1)">后{{ traceDays || 1 }}天 ›</button>
+      </span>
+      <i>连续 {{ traceDays || 1 }} 天时间轴 · 相邻天时段自动接续 · 色块宽=所需时间 · 重叠自动分行 · 横滑看全天 · 长按事项色块后拖动可改时间(可跨天; 拖到屏幕边缘自动延伸) · 缩放以屏幕中央为锚</i>
+      <div class="tzoom">
+        <button class="mini" title="缩小(跨度更大)" @click="traceZoomBy(-20)">－</button>
+        <input type="range" min="2" max="520" step="2" class="tzslider" :value="traceHourW"
+               @input="traceZoomSet($event.target.value)" title="拖动调整 X 轴时间跨度(2px=每小时, 可整轴铺满多日)">
+        <button class="mini" title="放大(看得更细)" @click="traceZoomBy(20)">＋</button>
+        <i class="tzlabel">{{ traceSpanLabel() }}</i>
+        <button class="mini ghost" @click="traceZoomReset()">重置</button>
+        <span class="tzpresets">
+          <button class="mini" title="一屏约 1.5 小时" @click="traceFitHours(1.5)">1.5时</button>
+          <button class="mini" title="一屏约 3 小时" @click="traceFitHours(3)">3时</button>
+          <button class="mini" title="一屏约 6 小时" @click="traceFitHours(6)">6时</button>
+          <button class="mini" title="一屏约 12 小时" @click="traceFitHours(12)">12时</button>
+          <button class="mini" title="一屏约 24 小时" @click="traceFitHours(24)">24时</button>
+          <button class="mini primary" title="把当前 N 天整轴铺满一屏" @click="traceFitAxis()">整轴</button>
+        </span>
+      </div>
+      <div class="tzoom tzdays">
+        <span class="tzlbl">轴长</span>
+        <button v-for="n in [1,2,3,5,7]" :key="'d'+n" class="mini" :class="{primary: (traceDays||1)===n}" @click="traceDaysSet(n)">{{ n }}天</button>
+      </div>
+    </div>
+    <template v-if="flow && flow.todos.length">
+      <div class="tflowwrap">
+        <div class="tfcol" :style="{width: (flow.spanMin * flow.pxPerMin) + 'px'}">
+          <div class="tfhdr">
+            <b v-for="d in flow.daysMeta" :key="'dl' + d.off" class="tfdaylb"
+               :style="{left: (d.off / flow.spanMin * 100) + '%'}">{{ d.label }}</b>
+            <span v-for="h in flow.labelHours" :key="'l'+h" class="tflbl"
+                  :style="{left: (h / flow.spanMin * 100) + '%'}">{{ M.fmtMin(h % 1440) }}</span>
+          </div>
+          <div class="tfbody" :style="{height: flow.bodyH + 'px'}">
+            <template v-for="d in flow.daysMeta" :key="'ds' + d.off">
+              <i v-if="d.off > 0" class="tfdaysep" :style="{left: (d.off / flow.spanMin * 100) + '%'}"></i>
+            </template>
+            <i v-for="h in flow.lineHours" :key="'x'+h" class="tfline"
+               :style="{left: (h / flow.spanMin * 100) + '%', opacity: (h % (flow.lineStep * 180) === 0 ? 0.55 : 0.16)}"></i>
+            <!-- 时段(跨天连续轴): 时间重叠时自动分行, 各自成行可读 -->
+            <template v-if="flow.bandLanes && flow.bandLanes.length">
+              <div v-for="(row, ri) in flow.bandLanes" :key="'br' + ri" class="tfbandrow"
+                   :style="{top: (flow.bandLaneTop[ri] + 2) + 'px', height: flow.bandLaneH[ri] + 'px'}">
+                <span v-for="(bd, i) in row" :key="'bd' + ri + '-' + i" class="tfband lane" :class="{idle: bd.idle}"
+                      :style="{left: (bd.s / flow.spanMin * 100) + '%', width: ((bd.e - bd.s) / flow.spanMin * 100) + '%', background: bd.idle ? bd.col.t12 : bd.col.t22, borderLeftColor: bd.col.deep}">
+                  <b :style="{color: bd.col.deep}">{{ bd.name }}</b>
+                  <em>{{ absMin(bd.s) }}–{{ absMinEnd(bd.e) }}</em>
+                </span>
+              </div>
+            </template>
+            <span v-else v-for="(bd, i) in flow.bands" :key="'bd' + i" class="tfband" :class="{idle: bd.idle}"
+                  :style="{left: (bd.s / flow.spanMin * 100) + '%', width: ((bd.e - bd.s) / flow.spanMin * 100) + '%', background: bd.idle ? bd.col.t12 : bd.col.t22, borderLeftColor: bd.col.deep}">
+              <b :style="{color: bd.col.deep}">{{ bd.name }}</b>
+              <em>{{ absMin(bd.s) }}–{{ absMinEnd(bd.e) }}</em>
+            </span>
+            <div v-for="(row, ri) in flow.rows" :key="'rw' + ri" class="tfrow"
+                 :style="{top: (flow.rowTop[ri] + 2) + 'px', height: flow.rowH[ri] + 'px'}">
+              <span v-for="b in row" :key="b.todo.id" class="tfblk" :data-id="b.todo.id"
+                    :class="{draggh: drag && drag.id === b.todo.id, armed: drag && drag.id === b.todo.id && drag.armed, fuzzy: b.todo.fuzzy}"
+                    :style="blkStyle(b)"
+                    :title="b.todo.title + ' · ' + absMin(b.s) + '–' + absMinEnd(b.e)"
+                    @click="blkClick(b.todo)" @pointerdown.stop.prevent="tfDragStart(b, $event)">
+                <i class="bdot" :class="'b' + b.todo.importance"></i>
+                <span class="txt">{{ b.todo.title }}<i v-if="b.todo.location" class="loc"> 📍{{ b.todo.location }}</i></span>
+              </span>
+            </div>
+            <i v-if="nowPct >= 0" class="nowline" :style="{left: nowPct + '%'}"></i>
+          </div>
+        </div>
+      </div>
+      <p class="tfnote">{{ flow.todos.length }} 项 · 轴 {{ traceDays || 1 }} 天 · 待办 {{ flow.rows.length }} 行<template v-if="flow.bandLanes && flow.bandLanes.length"> + 时段 {{ flow.bandLanes.length }} 行(重叠自动分行)</template> · 浅色背景 = 时段, 不参与拖动</p>
+    </template>
+    <div v-else class="empty">
+      <div class="emptymark">🗓</div>
+      <p>{{ traceDays > 1 ? '这段时间内还没有带时间的事项' : '今天还没有带时间的事项' }}<br>新建待办并设定时间后, 会以瀑布流显示在这里; 顶部可翻到任意日期预览</p>
+    </div>
+  </main>
+
+  <!-- ===== 时段库视图 ===== -->
+  <main v-else class="slotswrap">
+    <div class="tracebar">
+      <b>⏳ 时段库</b>
+      <i>按优先度排列(高→低) · 每天到点提前提醒 · 编辑待办时可选“时段”挂入</i>
+      <button class="mini primary" @click="openSlotNew()">＋ 新建时段</button>
+    </div>
+    <div v-if="slotForm" class="slotform">
+      <div class="field">
+        <label>名称(激活时显示) <i class="req">必填</i></label>
+        <input v-model="slotForm.name" placeholder="例: 上午专注 / 夜班值守 / 学习高数" maxlength="40">
+      </div>
+      <div class="field">
+        <label>空闲名(非激活时显示, 可留空 = 沿用激活名)</label>
+        <input v-model="slotForm.idleName" placeholder="例: 自由安排 / 夜间休息" maxlength="40">
+      </div>
+      <div class="field">
+        <label>时间段形式</label>
+        <div class="segs">
+          <button :class="{on: !slotForm.multi}" @click="setSlotMulti(false)">单段(开始→结束)</button>
+          <button :class="{on: !!slotForm.multi}" @click="setSlotMulti(true)">多段(多时间窗/跨午夜)</button>
+        </div>
+        <i class="hint">{{ slotForm.multi ? '多段: 可添加多个时间窗并各自重复; 每段结束早于开始 = 跨午夜(次日收尾)' : '单段: 只一个时间窗; 结束早于开始 = 跨午夜(次日收尾)' }}</i>
+      </div>
+      <div class="field">
+        <template v-if="slotForm.multi">
+          <label>时间段 <i class="hint">可多段; 结束早于开始 = 跨午夜(次日)</i></label>
+          <div class="nodlist">
+            <div v-for="(nd, i) in slotForm.nodes" :key="'nd' + i" class="nodrow">
+              <select v-model.number="nd.startMin" @change="sortFormNodes">
+                <option v-for="o in timeOptions" :value="o.v" :key="'ns' + i + '-' + o.v">{{ o.label }}</option>
+              </select>
+              <b class="ndndash">→</b>
+              <select v-model.number="nd.endMin" @change="sortFormNodes">
+                <option v-for="o in endTimeOptions" :value="o.v" :key="'ne' + i + '-' + o.v">{{ o.label }}</option>
+              </select>
+              <button class="mini danger ndx" @click="removeSlotNode(i)" title="删除此段">×</button>
+            </div>
+          </div>
+          <div class="btnrow">
+            <button class="mini" @click="addSlotNode()">＋ 添加时间段</button>
+            <button class="mini primary" @click="pickUnnamedGaps()">✨ 选取未命名空隙</button>
+            <button class="mini ghost" @click="clearSlotNodes()">清空</button>
+          </div>
+          <div class="brushwrap">
+            <div class="brushbar" ref="brushbar" @pointerdown.prevent.stop="brushDown($event)">
+              <i v-for="h in 9" :key="'b' + h" class="brushlab" :style="{left: ((h - 1) * 3 / 24 * 100) + '%'}">{{ (h - 1) * 3 }}时</i>
+              <span v-for="(nd, i) in slotForm.nodes" :key="'fill' + i" class="brushfill"
+                    :style="brushSegStyle(nd)"></span>
+              <span v-if="brushDraft" class="brushfill draft" :style="brushSegStyle(brushDraft)"></span>
+              <i class="brushhint">← 在时间条上按住拖动 = 刷选新增时间段 →</i>
+            </div>
+          </div>
+        </template>
+        <template v-else>
+          <label>时间段 <i class="hint">结束早于开始 = 跨午夜(次日收尾)</i></label>
+          <div class="nodlist">
+            <div class="nodrow">
+              <select v-model.number="slotForm.nodes[0].startMin" @change="sortFormNodes">
+                <option v-for="o in timeOptions" :value="o.v" :key="'ns0-' + o.v">{{ o.label }}</option>
+              </select>
+              <b class="ndndash">→</b>
+              <select v-model.number="slotForm.nodes[0].endMin" @change="sortFormNodes">
+                <option v-for="o in endTimeOptions" :value="o.v" :key="'ne0-' + o.v">{{ o.label }}</option>
+              </select>
+            </div>
+          </div>
+        </template>
+      </div>
+      <div class="field">
+        <label>环境内容</label>
+        <input v-model="slotForm.env" placeholder="例: 家里 / 安静 / 需要电脑 / 地铁上">
+      </div>
+      <div class="field">
+        <label>时段优先度</label>
+        <div class="segs">
+          <button v-for="im in M.IMPORTANCE" :key="'p'+im.v" :class="{on: slotForm.priority===im.v}"
+                  :style="slotForm.priority===im.v ? {background:im.color, color:'#fff'} : {}"
+                  @click="slotForm.priority=im.v">{{ im.label }}</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>重复</label>
+        <div class="segs">
+          <button :class="{on: slotForm.freq==='daily'}" @click="slotForm.freq='daily'">每天</button>
+          <button :class="{on: slotForm.freq==='weekly'}" @click="slotForm.freq='weekly'">每周</button>
+          <button :class="{on: slotForm.freq==='monthly'}" @click="slotForm.freq='monthly'">每月</button>
+          <button :class="{on: slotForm.freq==='yearly'}" @click="slotForm.freq='yearly'">每年</button>
+        </div>
+        <div v-if="slotForm.freq==='weekly'" class="chips" style="margin-top:8px">
+          <button v-for="(w,i) in M.WEEK_CN" :key="'w'+i" class="chip" :class="{on: slotForm.weekdays.includes(i+1)}"
+                  @click="toggleWeekday(i+1)">周{{ w }}</button>
+        </div>
+        <div v-else-if="slotForm.freq==='monthly'" class="yearlyrow">
+          <select v-model.number="slotForm.monthDay">
+            <option v-for="d in 31" :value="d" :key="'md'+d">{{ d }}日</option>
+          </select>
+          <i class="hint">每月这一天重复; 若当月没有该日(如 31 号)则当月跳过</i>
+        </div>
+        <div v-else-if="slotForm.freq==='yearly'" class="yearlyrow">
+          <select v-model.number="slotForm.startM"><option v-for="m in 12" :value="m" :key="'sm'+m">{{ m }}月</option></select>
+          <select v-model.number="slotForm.startD"><option v-for="d in daysInMonth(slotForm.startM)" :value="d" :key="'sd'+d">{{ d }}日</option></select>
+          <span class="yly">至</span>
+          <select v-model.number="slotForm.endM"><option v-for="m in 12" :value="m" :key="'em'+m">{{ m }}月</option></select>
+          <select v-model.number="slotForm.endD"><option v-for="d in daysInMonth(slotForm.endM)" :value="d" :key="'ed'+d">{{ d }}日</option></select>
+          <i class="hint">每年重复;结束早于开始 = 跨年(如 12-20 至 1-5)</i>
+        </div>
+      </div>
+      <div class="field">
+        <label>泳道颜色 <i class="hint">低饱和柔色; 按优先度自动取空闲色, 删除时段即释放</i></label>
+        <div class="changerow">
+          <span v-for="i in 3" :key="'col'+i" class="colorpill pick"
+                :class="{cur: slotFormIdx()===curGroupStart()+i-1, dim: slotColorDim(curGroupStart()+i-1)}"
+                :style="{background: M.slotColor(curGroupStart()+i-1).deep}"
+                :title="'选用第 '+i+' 号色'" @click="pickFormSlot(curGroupStart()+i-1)"></span>
+          <button class="mini" @click="autoFormSlot()">自动</button>
+          <i class="hint2">{{ slotForm.colorSlot==null ? '将自动分配空闲色' : '已固定(可在下方点选换色)' }}</i>
+        </div>
+      </div>
+      <div class="field">
+        <label>开始前提醒</label>
+        <select v-model.number="slotForm.remindBeforeMin">
+          <option :value="0">不提醒</option>
+          <option v-for="c in M.REMIND_CHOICES.slice(1)" :value="c.m" :key="c.m">{{ c.label }}</option>
+        </select>
+        <i class="hint">每天到该时段开始前提醒一次;提前量 0 = 不提醒</i>
+      </div>
+      <div class="sft">
+        <button v-if="slotEditing" class="danger" @click="removeSlot(slotForm); slotForm=null">删除</button>
+        <div class="spacer"></div>
+        <button class="ghost" @click="cancelSlot()">取消</button>
+        <button class="primary" @click="saveSlot()">保存时段</button>
+      </div>
+    </div>
+    <div class="slotlist">
+      <div v-for="p in sortedPeriods" :key="p.id" class="slotcard"
+           :style="{'border-left-color': M.periodColor(p).deep}">
+        <div class="slotmain" @click="openSlotEdit(p)">
+          <span class="colorpill" :style="{background: M.periodColor(p).deep}"></span>
+          <b>{{ p.name }}</b>
+          <span class="sltime">⏱ {{ slotTimeLabel(p) }}</span>
+          <span class="mk quiet">🔁 {{ M.periodFreqLabel(p) }}</span>
+          <span v-if="p.idleName" class="mk quiet">💤 空闲:{{ p.idleName }}</span>
+          <span v-if="p.env" class="slenv">🌿 {{ p.env }}</span>
+        </div>
+        <span class="mk imp" :style="{color:M.imp(p.priority).color, background:M.imp(p.priority).bg}">⭐ {{ M.imp(p.priority).label }}</span>
+        <span class="mk quiet">🔔 {{ p.remindBeforeMin>0 ? '提前'+p.remindBeforeMin+'分' : '不提醒' }}</span>
+        <div class="acts">
+          <button class="ibtn" title="编辑" @click="openSlotEdit(p)">✎</button>
+          <button class="ibtn" title="删除" @click="removeSlot(p)">🗑</button>
+        </div>
+      </div>
+      <div v-if="!sortedPeriods.length && !slotForm" class="empty">
+        <div class="emptymark">⏳</div>
+        <p>还没有时段 — 建一个“专注时段”或“通勤时段”试试</p>
+        <button class="primary" @click="openSlotNew()">＋ 新建时段</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===== 编辑弹层 ===== -->
+  <div v-if="editorOpen" class="overlay" @click.self="closeEditor">
+    <div class="sheet">
+      <header class="sheet-hd">
+        <b>{{ editorMode==='new' ? '新建待办' : '编辑待办' }}</b>
+        <button class="ibtn" @click="closeEditor">✕</button>
+      </header>
+      <div class="sheet-bd">
+        <div class="field">
+          <label>标题 <i v-if="!editing.title" class="req">必填</i></label>
+          <input v-model="editing.title" placeholder="要做什么?" maxlength="120" @keyup.enter="saveTodo"
+                 @focus="histOpen('title')" @input="histOpen('title')" @blur="histBlur()" @keydown.esc="histClose()">
+          <div v-if="hist.show==='title' && hist.items.length" class="drop">
+            <button v-for="it in hist.items" :key="it.text" type="button" class="dropit" tabindex="-1"
+                    @pointerdown.prevent.stop="histPick('title', it.text)">
+              <span class="dtext">{{ it.text }}</span>
+              <span v-if="it.count>1" class="dcnt">×{{ it.count }}</span>
+            </button>
+          </div>
+        </div>
+        <!-- 查重提示: 同一件事但时间变了 → 保存后自动替换旧的那条 -->
+        <p v-if="dupeDraft && dupeDraft.length" class="dupehint">
+          {{ dedupeHintText() }}
+          <i>关掉这个功能: 设置 → 🤖 AI 建任务 → 「同事实查重」</i>
+        </p>
+        <div class="duperow">
+          <button class="mini" :disabled="!editing.title" @click="scanDupes()">🔎 扫描可能重复(不只名字一样)</button>
+          <button v-if="ptTopRows.length" class="mini ghost" @click="openTopReview()">上次自查结果 {{ ptTopRows.length }} 组</button>
+          <i class="hint">扫描时自动跳过已完成 / 已逾期 / 时间已过的事项</i>
+        </div>
+        <div class="field">
+          <label>时间 <i class="hint">定时 / 🎯截止目标(只设截止) / ⌛不定时(完全不设)</i></label>
+          <div class="segs segsm">
+            <button :class="{on: !editing.goal && !!editing.dueAt}" @click="setTimeMode('due')">⏰ 定时</button>
+            <button :class="{on: editing.goal}" @click="setTimeMode('goal')">🎯 截止目标</button>
+            <button :class="{on: !editing.dueAt}" @click="clearDue()">⌛ 不定时</button>
+          </div>
+          <div class="row" v-if="!editing.goal">
+            <input type="datetime-local" :value="dueInput()" @change="onDueInput($event.target.value)">
+            <button class="mini" v-if="editing.dueAt" @click="clearDue()">清除时间</button>
+          </div>
+          <template v-else>
+            <div class="row">
+              <input type="date" :value="goalDateInput()" @change="onGoalDate($event.target.value)">
+              <button class="mini" v-if="editing.dueAt" @click="clearDue()">清除</button>
+            </div>
+            <div class="chips">
+              <button class="chip" @click="goalQuick(1)">明天截止</button>
+              <button class="chip" @click="goalQuick(3)">3 天后</button>
+              <button class="chip" @click="goalQuick(7)">一周内</button>
+              <button class="chip" @click="goalQuick(14)">两周内</button>
+            </div>
+            <p class="repnote" v-if="editing.dueAt">🎯 {{ M.fmtDue(editing.dueAt) }} 前完成 · {{ goalLeftText(editing) }}</p>
+          </template>
+          <div class="chips" v-if="!editing.goal">
+            <button class="chip" v-for="c in [{l:'1 小时后',o:3600e3},{l:'今天 18:00',h:18},{l:'明天 09:00',h:9,d:1},{l:'明天 18:00',h:18,d:1}]"
+                    :key="c.l" @click="quickChip(c)">{{ chipLabel(c) }}</button>
+            <button class="chip" :class="{on: !editing.dueAt}" @click="clearDue()">⌛ 不定时</button>
+          </div>
+        </div>
+        <div class="field" v-if="editing.dueAt || editing.goal">
+          <label>重复触发 <i class="hint" v-if="!editing.goal">完成后自动排到下一周期, 到点提醒也会按周期重复</i><i class="hint" v-else>每天都要完成的任务: 当天没勾掉会留在这天(变红), 勾掉后自动生成下一天</i></label>
+          <div class="segs">
+            <button :class="{on: editing.repeat==='none'}" @click="setRepeat('none')">不重复</button>
+            <button :class="{on: editing.repeat==='daily'}" @click="setRepeat('daily')">每天</button>
+            <button v-if="!editing.goal" :class="{on: editing.repeat==='weekly'}" @click="setRepeat('weekly')">每周</button>
+            <button v-if="!editing.goal" :class="{on: editing.repeat==='monthly'}" @click="setRepeat('monthly')">每月</button>
+          </div>
+          <!-- 每周参数: 多选星期几 -->
+          <div v-if="editing.repeat==='weekly' && editing.dueAt" class="field subparam">
+            <label>每周重复于 <i class="hint">可多选</i></label>
+            <div class="segs segsm">
+              <button v-for="w in [{n:'一',v:1},{n:'二',v:2},{n:'三',v:3},{n:'四',v:4},{n:'五',v:5},{n:'六',v:6},{n:'日',v:7}]"
+                      :key="w.v" class="chip" :class="{on: wdOn(w.v)}" @click="toggleRepeatWeekday(w.v)">周{{ w.n }}</button>
+              <button class="mini ghost" title="清空自定义选择(沿用当前时间对应星期)" @click="clearRepeatDays('weekly')">清空</button>
+            </div>
+          </div>
+          <!-- 每月参数: 多选几号 -->
+          <div v-if="editing.repeat==='monthly' && editing.dueAt" class="field subparam">
+            <label>每月几号重复 <i class="hint">可多选,点灰色日号添加</i></label>
+            <div class="mdays">
+              <button v-for="n in 31" :key="n" class="chip chipday" :class="{on: monthOn(n)}"
+                      @click="toggleRepeatMonthDay(n)">{{ n }}</button>
+              <button class="mini ghost" title="清空自定义选择(沿用当前时间对应日号)" @click="clearRepeatDays('monthly')">清空</button>
+            </div>
+          </div>
+          <p v-if="editing.repeat!=='none' && editing.goal" class="repnote">🔁 🎯 每天目标: 每天 {{ M.fmtDue(editing.dueAt) }} 前完成 — 勾掉当天即完成, 第二天自动生成下一条; 该天没完成就会留在列表里变红。</p>
+          <p v-else-if="editing.repeat!=='none'" class="repnote">🔁 {{ M.repLabel(editing) }}触发 — 每周/每月均可多选; 短月自动顺延; 未设置时沿用当前时间对应日</p>
+          <p v-else-if="editing.goal" class="repnote">🎯 一次性目标: 只在这一天前完成即可; 若要“每天都要做”, 点上面的「每天」。</p>
+          <p v-else-if="!editing.dueAt" class="repnote">先设定时间即可选重复(每天 / 每周 / 每月)</p>
+        </div>
+        <div class="field row2">
+          <div>
+            <label>提前提醒</label>
+            <select v-model.number="editing.remindBeforeMin">
+              <option v-for="c in M.REMIND_CHOICES" :value="c.m" :key="c.m">{{ c.label }}</option>
+            </select>
+          </div>
+          <div>
+            <label>需要时间</label>
+            <div class="chips inline">
+              <button v-for="m in [15,30,45,60,120]" :key="m" class="chip"
+                      :class="{on: editing.durationMin===m}" @click="editing.durationMin=editing.durationMin===m?null:m">{{ m }}分</button>
+            </div>
+            <input v-if="editing.durationMin && ![15,30,45,60,120].includes(editing.durationMin)" type="number" min="1"
+                   v-model.number="editing.durationMin" class="num"> 
+            <input v-else type="number" min="1" placeholder="自定义分钟" v-model.number="editing.durationCustom" class="num"
+                   @change="editing.durationMin = editing.durationCustom>0 ? editing.durationCustom : editing.durationMin; editing.durationCustom=null">
+          </div>
+        </div>
+        <div class="field">
+          <label>状态 <i class="hint">模糊 = 到点/逾期也不弹提醒(列表仍显示状态与时间)</i></label>
+          <div class="segs">
+            <button :class="{on: !editing.fuzzy}" @click="editing.fuzzy=false">普通</button>
+            <button :class="{on: editing.fuzzy}" @click="editing.fuzzy=true">🌫 模糊</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>重要程度 <i class="hint">轻微 / 一般 / 重要 / 紧急 / 特急(档位越高光效越强)</i></label>
+          <div class="segs">
+            <button v-for="im in M.IMPORTANCE" :key="im.v" :data-v="im.v" :class="{on: editing.importance===im.v}"
+                    :style="editing.importance===im.v ? {background:im.color, color:'#fff'} : {}" @click="editing.importance=im.v">{{ im.label }}</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>任务量 <i class="hint">轻松 / 适中 / 较重 / 繁重(不定时事项会一直显示)</i></label>
+          <div class="segs segsm">
+            <button v-for="e in M.EFFORT" :key="e.v" :class="{on: (editing.effort==null?1:editing.effort)===e.v}"
+                    @click="editing.effort=e.v">{{ e.label }}</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>地点</label>
+          <input v-model="editing.location" placeholder="例如: 超市 / 家 / 公司 3 楼"
+                 @focus="histOpen('location')" @input="histOpen('location')" @blur="histBlur()" @keydown.esc="histClose()">
+          <div v-if="hist.show==='location' && hist.items.length" class="drop">
+            <button v-for="it in hist.items" :key="it.text" type="button" class="dropit" tabindex="-1"
+                    @pointerdown.prevent.stop="histPick('location', it.text)">
+              <span class="dtext">📍 {{ it.text }}</span>
+              <span v-if="it.count>1" class="dcnt">×{{ it.count }}</span>
+            </button>
+          </div>
+        </div>
+        <div class="field">
+          <label>时段 <i class="hint">(挂入后将在轨迹/列表以该时段颜色标示)</i>
+            <span v-if="slotColorObj(editing.slotId)" class="colorpill" :style="{background: slotColorObj(editing.slotId).deep}"></span>
+          </label>
+          <select v-model="editing.slotId">
+            <option value="">未安排(默认泳道)</option>
+            <option v-for="p in sortedPeriods" :value="p.id" :key="p.id">
+              {{ p.name }} · {{ M.fmtMin(p.startMin) }}–{{ M.fmtMin(p.endMin) }}<template v-if="p.freq!=='daily'"> · {{ M.periodFreqLabel(p) }}</template> · ⭐{{ M.imp(p.priority).label }}
+            </option>
+          </select>
+        </div>
+        <div class="field">
+          <label>所需材料 <i class="hint">(可多个, 回车添加)</i></label>
+          <div class="row">
+            <input v-model="materialInput" placeholder="例如: 身份证、户口本" @keyup.enter.prevent="addMaterial"
+                   @focus="histOpen('materials')" @input="histOpen('materials')" @blur="histBlur()" @keydown.esc="histClose()">
+            <button class="mini primary" @click="addMaterial">添加</button>
+          </div>
+          <div v-if="hist.show==='materials' && hist.items.length" class="drop">
+            <button v-for="it in hist.items" :key="it.text" type="button" class="dropit" tabindex="-1"
+                    @pointerdown.prevent.stop="histPick('materials', it.text)">
+              <span class="dtext">🧰 {{ it.text }}</span>
+              <span v-if="it.count>1" class="dcnt">×{{ it.count }}</span>
+            </button>
+          </div>
+          <div v-if="editing.materials.length" class="chips">
+            <span v-for="m in editing.materials" :key="m" class="chip on mat">
+              {{ m }}<b @click="removeMaterial(m)">×</b>
+            </span>
+          </div>
+        </div>
+        <div class="field">
+          <label>独立性</label>
+          <div class="segs">
+            <button :class="{on: editing.independent===true}" @click="editing.independent=true">🔗 独立完成</button>
+            <button :class="{on: editing.independent===false}" @click="editing.independent=false">🤝 依赖他人 / 前置条件</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>备注</label>
+          <textarea v-model="editing.notes" rows="2" placeholder="补充说明…"
+                    @focus="histOpen('notes')" @input="histOpen('notes')" @blur="histBlur()" @keydown.esc="histClose()"></textarea>
+          <div v-if="hist.show==='notes' && hist.items.length" class="drop up">
+            <button v-for="it in hist.items" :key="it.text" type="button" class="dropit" tabindex="-1"
+                    @pointerdown.prevent.stop="histPick('notes', it.text)">
+              <span class="dtext">📝 {{ it.text }}</span>
+              <span v-if="it.count>1" class="dcnt">×{{ it.count }}</span>
+            </button>
+          </div>
+        </div>
+        <div class="field" v-if="editing && editing.title">
+          <button class="mini primary" :disabled="aiBusy" @click="aiDetailPickClick()">{{ aiBusy ? '解析中…' : '📗 AI 补全课程详情' }}</button>
+          <p class="repnote">课程专用模式第二步: 选这门课的“详情截图”, 自动识别 老师/教材/资料/作业 填入本表(第一步先用课表图写入课程时间)</p>
+        </div>
+      </div>
+      <footer class="sheet-ft">
+        <button v-if="editorMode==='edit'" class="danger" @click="removeTodo(editing); editorOpen=false">删除</button>
+        <div class="spacer"></div>
+        <button class="ghost" @click="closeEditor">取消</button>
+        <button class="primary" :disabled="saving" @click="saveTodo">{{ saving ? '保存中…' : '保存' }}</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ===== 设置弹层 ===== -->
+  <div v-if="settingsOpen" class="overlay" @click.self="closeSettings">
+    <div class="sheet wide">
+      <header class="sheet-hd">
+        <b>设置</b>
+        <button class="ibtn" @click="closeSettings">✕</button>
+      </header>
+      <div class="sheet-bd">
+        <section class="setsec">
+          <h3>🎨 外观</h3>
+          <div class="srow"><span>主题颜色</span>
+            <div class="segs segsm">
+              <button :class="{on: themePref==='light'}" @click="setThemePref('light')">☀ 浅色</button>
+              <button :class="{on: themePref==='dark'}" @click="setThemePref('dark')">🌙 深色</button>
+              <button :class="{on: themePref==='neo'}" @click="setThemePref('neo')">🌌 电光</button>
+              <button :class="{on: themePref==='system'}" @click="setThemePref('system')">🖥 跟随系统</button>
+            </div>
+          </div>
+          <div class="srow"><span>流畅模式</span>
+            <div class="segs segsm">
+              <button :class="{on: perfLite}" @click="setLite(true)">🚀 流畅(关动效)</button>
+              <button :class="{on: !perfLite}" @click="setLite(false)">✨ 特效</button>
+            </div>
+          </div>
+          <p class="tip">主题为设备本地显示偏好(不参与多端同步);「跟随系统」随 Windows/手机系统的浅深色自动切换。</p>
+        </section>
+        <section class="setsec">
+          <h3>🔌 同步与连接</h3>
+          <div class="srow"><span>当前地址</span><code>{{ locOrigin }}</code></div>
+          <div v-if="desktopInfo" class="srow"><span>本机可访问地址</span>
+            <div class="codes">
+              <code v-for="u in desktopInfo.urls" :key="u">{{ u }}</code>
+            </div>
+          </div>
+          <div v-if="desktopInfo && !desktopInfo.tailscaleUp" class="tip">⚠️ 未检测到 Tailscale — 手机在外网使用时,请在电脑上运行 <code>tailscale up</code> 后刷新。</div>
+          <div class="srow"><span>连接码</span>
+            <div class="row">
+              <input v-model="tokenInput" placeholder="电脑端设置页显示的连接码" :class="{err: conn==='auth'}">
+              <button class="mini" @click="saveToken">保存</button>
+            </div>
+          </div>
+          <div class="srow" v-if="host"><span>重置连接码</span>
+            <button class="mini danger" @click="resetToken">重置(其他设备需更新)</button>
+          </div>
+          <div class="srow"><span>同步状态</span><span class="conn" :class="'c-'+conn"><i class="dot"></i>{{ connMeta[0] }} <template v-if="lastSyncText"> {{ lastSyncText }}</template></span>
+            <button class="mini" @click="onManualSync">立即同步</button>
+          </div>
+        </section>
+        <section class="setsec" v-if="host">
+          <h3>🌍 远程访问(手机在任何网络都能连)</h3>
+          <p class="tip2">软件会自动建一条加密隧道,把电脑上的待办安全地开放给<b>你自己的手机</b>。<br>
+            不需要装 Tailscale、不需要同一个 Wi-Fi、不需要买域名、不需要扫码。<b>电脑端开着,手机就能连;电脑端一关,入口自动消失。</b></p>
+          <div class="srow"><span>入口状态</span>
+            <b :style="{color: remoteStatus && remoteStatus.linkReady ? '#1f9d55' : (remoteStatus && remoteStatus.running ? '#c07a12' : '#8a94a6')}">
+              {{ remoteStateText() }}
+            </b>
+            <button class="mini" :disabled="remoteBusy" @click="refreshRemote(true)">刷新</button>
+          </div>
+          <div class="srow" v-if="remoteStatus && remoteStatus.linkUrl" style="align-items:flex-start">
+            <span>手机链接</span>
+            <div class="codes" style="flex:1;min-width:0">
+              <code style="word-break:break-all;white-space:normal">{{ remoteStatus.linkUrl }}</code>
+            </div>
+          </div>
+          <div class="srow" v-if="remoteStatus && remoteStatus.linkUrl">
+            <span>操作</span>
+            <button class="mini primary" @click="copyRemoteLink">复制链接</button>
+            <button class="mini" @click="openRemoteLink">在电脑上试打开</button>
+            <button class="mini" @click="resetRemoteLink">换一条新链接</button>
+          </div>
+          <div class="srow">
+            <span>开关</span>
+            <button class="mini" :class="{primary: !remoteRunning}" :disabled="remoteBusy" @click="startRemote">{{ remoteRunning ? '已开启(点此重启)' : '开启远程访问' }}</button>
+            <button class="mini" v-if="remoteRunning" :disabled="remoteBusy" @click="stopRemote">关闭</button>
+            <button class="mini" :disabled="remoteBusy" @click="runRemoteCheck">连接诊断</button>
+            <button class="mini danger" :disabled="remoteBusy" @click="repairRemote">一键修复</button>
+          </div>
+          <div v-if="remoteBusy" class="tip">⏳ {{ remoteBusyText || '处理中…' }}<span v-if="remoteStarting">(首次开启约需 20~90 秒,期间可以正常用电脑端)</span></div>
+          <div v-if="remoteErr" class="tip" style="color:#d33f49">⚠ {{ remoteErr }}</div>
+          <div v-if="remoteSteps.length" class="steps">
+            <div v-for="(s, i) in remoteSteps" :key="'rs'+i" class="steprow">
+              <b :style="{color: s.ok ? '#1f9d55' : '#d33f49'}">{{ s.ok ? '✅' : '❌' }}</b>
+              <span>{{ s.name }}</span>
+              <i>{{ s.detail }}</i>
+            </div>
+          </div>
+          <p class="tip">手机第一次打开链接后会自动记住这台设备(30 天),之后只打开域名就行 —— 链接里的凭据会自己从地址栏消失。<br>
+            安全: 链接等于钥匙,别发到群里。要作废就点「换一条新链接」,旧链接立刻失效。<br>
+            提示: 隧道走的是 Cloudflare 免费通道,域名在每次重启后会变化 —— 变了就在这里复制新链接。</p>
+        </section>
+        <section class="setsec" v-else>
+          <h3>🌍 远程访问(手机在任何网络都能连)</h3>
+          <p class="tip2">你正在<b>手机或浏览器</b>里看这一页 —— 能打开它,就说明电脑上的远程入口已经在工作了 ✅</p>
+          <div class="srow" v-if="remoteStatus && remoteStatus.linkUrl"><span>当前入口</span>
+            <div class="codes" style="flex:1;min-width:0"><code style="word-break:break-all;white-space:normal">{{ remoteStatus.base }}</code></div>
+          </div>
+          <p class="tip">「开启 / 关闭 / 换链接」在<b>电脑端的「待办提醒」里操作</b>(设置 → 远程访问)。<br>
+            电脑端一关,这个入口就会自动消失;电脑端一开,它会自己重新建好。</p>
+        </section>
+        <section class="setsec">
+          <h3>🤖 AI 建任务(截图自动识别)</h3>
+          <p class="tip2">上传或直接粘贴一张截图(通知 / 聊天 / 票证 / 公告…), AI 自动提取标题、时间、地点、材料并填入“新建待办”,核对后保存。接口为 OpenAI 兼容视觉模型,可填任意网关。</p>
+          <div class="srow"><span>接口地址</span>
+            <input v-model="aiCfg.baseUrl" placeholder="https://api.deepseek.com/v1" class="grow">
+          </div>
+          <div class="srow"><span>模型名</span>
+            <input v-model="aiCfg.model" placeholder="deepseek-v4-flash-vision-exp" class="grow">
+          </div>
+          <div class="srow"><span>API Key</span>
+            <input v-model="aiKey" type="text" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false"
+                   :placeholder="aiCfg && aiCfg.hasKey ? '已保存(留空不变)' : '粘贴你的 API Key(仅保存在本机)'" class="grow">
+          </div>
+          <div class="srow" style="align-items:flex-start"><span>节次对照表<br><i style="font-style:normal;font-size:10.5px;color:var(--ink3)">课表模式用</i></span>
+            <textarea v-model="aiCfg.periodTable" rows="4" class="grow" placeholder="每行一个, 如:&#10;第1节 08:00-09:40&#10;第2节 10:00-11:40&#10;…&#10;只写“第X节”的课表会按此换算钟点(截图上直接写钟点则以截图为准)"></textarea>
+          </div>
+          <div class="srow"><span>节次表状态</span>
+            <i style="font-style:normal;font-size:11px;color:var(--ink3)">{{ ptUpdatedText() ? '上次录入 ' + ptUpdatedText() + ' · 已永久保存' : '尚未录入' }}</i>
+            <button class="mini primary" :disabled="aiBusy" @click="savePtFromSettings">{{ aiBusy ? '保存中…' : '保存节次表' }}</button>
+          </div>
+          <div class="srow"><span>同事实查重<br><i style="font-style:normal;font-size:10.5px;color:var(--ink3)">时间变了就替换</i></span>
+            <i style="font-style:normal;font-size:11px;color:var(--ink3)">识别/新建的内容若与已有待办是同一件事(标题相同或高度相近), 保存后自动删掉旧的那条, 只留最新的时间</i>
+            <button class="mini" :class="{primary: dedupePref}" @click="toggleDedupeOn">{{ dedupePref ? '已开启' : '已关闭' }}</button>
+          </div>
+          <div class="srow"><span>全库重复自查<br><i style="font-style:normal;font-size:10.5px;color:var(--ink3)">手动触发</i></span>
+            <i style="font-style:normal;font-size:11px;color:var(--ink3)">扫描现有待办之间可能重复的条目(已跳过已完成/已逾期/已结束), 每组由你选择保留哪条</i>
+            <button class="mini" @click="closeSettings(); scanTop()">开始自查</button>
+          </div>
+          <div class="srow"><span>配置状态</span>
+            <b :style="{color: aiCfg && aiCfg.hasKey ? '#1f9d55' : '#d33f49'}">{{ aiCfg && aiCfg.hasKey ? '✅ 已配置' : '⚠ 未配置(填 Key 后点保存)' }}</b>
+            <button class="mini primary" :disabled="aiBusy" @click="saveAiCfg">{{ aiBusy ? '保存中…' : '保存配置' }}</button>
+          </div>
+          <p class="tip">注意: DeepSeek 官方开放平台目前只提供文本模型。若官方接口不支持视觉图片,请把「接口地址 / 模型名」换成你实际使用的视觉兼容网关(如硅基流动、自建网关)。</p>
+        </section>
+        <section class="setsec">
+          <h3>📱 手机端</h3>
+          <p class="tip2">① 手机与电脑同一 Wi-Fi 时: 手机浏览器打开上方「本机可访问地址」中的局域网地址(如 <code>http://192.168.x.x:{{ desktopInfo ? desktopInfo.port : '' }}</code>),输入连接码即可使用与记录同步。<br>
+          ② 不在同一网络时: 先在两台设备登录 <b>Tailscale</b>,打开 <code>http://100.x.x.x:端口</code> 的地址。<br>
+          ③ 需要系统级通知提醒的安卓 APK: 等电脑端确认无误后,运行 <code>scripts\build-apk.ps1</code> 生成。</p>
+          <div v-if="apkFiles.length" class="apks">
+            <div v-for="f in apkFiles" :key="f.name" class="srow"><span>📦 {{ f.name }} <i>({{ (f.size/1048576).toFixed(1) }} MB)</i></span>
+              <a class="mini primary" :href="'/dl/'+encodeURIComponent(f.name)">下载</a></div>
+          </div>
+          <p v-else class="tip">📦 APK 尚未生成 — 构建后会自动出现在这里。</p>
+          <div class="srow"><span>APK 下载页</span><code>{{ locOrigin }}/dl</code></div>
+        </section>
+        <section class="setsec" v-if="host || onePkg">
+          <h3>🔔 提醒测试</h3>
+          <div class="srow"><span>发一条系统通知, 验证通知链路(权限/后台)</span>
+            <button class="mini primary" @click="testNotify">发一条测试通知</button></div>
+          <div class="srow" v-if="onePkg"><span>{{ batteryText }}</span>
+            <button class="mini primary" @click="openBattery">开启后台运行权限</button></div>
+          <p class="tip" v-if="onePkg">「开启后台运行权限」会弹出系统授权(允许忽略电池优化); 若未弹窗而是跳到设置列表, 请找到本应用并允许。收不到提醒时: 通知权限 → 设置→通知→允许。</p>
+        </section>
+        <section class="setsec" v-if="host">
+          <h3>🖥 桌面端</h3>
+          <div class="srow"><span>开机自启(最小化到托盘)</span><label class="switch"><input type="checkbox" v-model="autostartOn" @change="setAutostart()"><i></i></label></div>
+          <div class="srow"><span>数据目录</span><code>{{ desktopInfo?.dataDir }}</code>
+            <button class="mini" @click="openFolder">打开</button></div>
+        </section>
+        <section class="setsec">
+          <h3>💾 数据</h3>
+          <div class="srow"><span>数据保存在电脑端(JSON, 可随时备份)</span>
+            <button class="mini" @click="exportBackup">导出备份</button></div>
+          <p class="tip">多端同时编辑同一条时按「最后保存」覆盖。恢复备份: 在电脑端停止程序后将备份文件重命名为 <code>todos.json</code> 放入数据目录。</p>
+        </section>
+        <section class="setsec">
+          <h3>ℹ️ 关于</h3>
+          <p class="tip2">待办提醒 v{{ desktopInfo?.version || '' }} · 界面参考 beeCount 提醒思路(Android AlarmManager + Windows 系统通知),同步参考 Tailscale 局域网直连方案。</p>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- toast -->
+  <div class="toasts">
+    <div v-for="t in toasts" :key="t.id" class="toast" :class="t.kind">{{ t.msg }}</div>
+  </div>
+</div>
+<script type="module" src="js/app.js?v=164"></script>
+</body>
+</html>

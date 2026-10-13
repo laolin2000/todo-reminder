@@ -1,0 +1,15 @@
+{
+  "name": "待办提醒",
+  "short_name": "待办提醒",
+  "description": "跨端待办与时段提醒 · Web 版(直接用于手机, 触摸操作)",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f2f4f9",
+  "theme_color": "#2F6BFF",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

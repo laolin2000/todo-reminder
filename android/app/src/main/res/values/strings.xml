@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">待办提醒</string>
+    <string name="hint_title">要做什么?</string>
+    <string name="hint_search">搜索标题 / 地点 / 材料…</string>
+    <string name="empty_list">还没有待办事项\n点右下角 ＋ 新建</string>
+    <string name="setting_title">设置 · 同步与提醒</string>
+    <string name="setting_conn">连接电脑端</string>
+    <string name="setting_url_hint">例如 http://192.168.1.5:8790 或 http://100.x.x.x:8790</string>
+    <string name="setting_token_hint">电脑端「设置 → 同步与连接」显示的连接码</string>
+    <string name="setting_hint">服务器地址是电脑上「待办提醒」程序显示的地址(同一 Wi-Fi 用局域网地址, 外出用 Tailscale 地址)</string>
+    <string name="btn_save">保存连接</string>
+    <string name="btn_test">测试连接 / 立即同步</string>
+    <string name="btn_notify_perm">通知权限(Android 13+)</string>
+    <string name="btn_exact_alarm">精确闹钟权限(到点准时提醒)</string>
+    <string name="btn_battery">忽略电池优化(推荐)</string>
+    <string name="btn_test_notify">发送测试通知</string>
+    <string name="btn_test_alarm">8 秒后测试闹钟</string>
+    <string name="about_title">关于</string>
+</resources>

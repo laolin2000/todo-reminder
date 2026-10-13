@@ -1,0 +1,260 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingTop="6dp">
+
+        <!-- 顶栏 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="4dp">
+
+            <TextView
+                android:id="@+id/tvAppTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/app_name"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:textColor="@color/ink" />
+
+            <TextView
+                android:id="@+id/tvStatusDot"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="14dp"
+                android:text="●"
+                android:textSize="9sp"
+                android:textColor="@color/ok" />
+
+            <TextView
+                android:id="@+id/tvSyncStatus"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:text="…"
+                android:textSize="12sp"
+                android:textColor="@color/ink2"
+                android:maxLines="1"
+                android:ellipsize="end" />
+
+            <TextView
+                android:id="@+id/tvLastSync"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="10sp"
+                android:textColor="@color/ink3" />
+
+            <TextView
+                android:id="@+id/btnAi"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/bg_chip"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="6dp"
+                android:text="AI"
+                android:textColor="@color/primary"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:contentDescription="截图 AI 建任务" />
+
+            <ImageButton
+                android:id="@+id/btnRefresh"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="刷新"
+                app:srcCompat="@drawable/ic_refresh"
+                android:scaleType="centerInside" />
+
+            <ImageButton
+                android:id="@+id/btnSettings"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="设置"
+                app:srcCompat="@drawable/ic_gear"
+                android:scaleType="centerInside" />
+        </LinearLayout>
+
+        <!-- 模式切换: 列表 / 时段 / 轨迹 -->
+        <HorizontalScrollView
+            android:id="@+id/scrollMode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none"
+            android:paddingHorizontal="8dp">
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chipsMode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                app:singleLine="true"
+                app:chipSpacingHorizontal="6dp" />
+        </HorizontalScrollView>
+
+        <!-- 当前时段横幅(点击进入轨迹视图) -->
+        <LinearLayout
+            android:id="@+id/rowNowPeriod"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingHorizontal="10dp"
+            android:paddingBottom="4dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tvNowPeriod"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_chip"
+                android:padding="8dp"
+                android:textColor="@color/ink"
+                android:textSize="12.5sp" />
+        </LinearLayout>
+
+        <!-- 状态标签(横向滑动) -->
+        <HorizontalScrollView
+            android:id="@+id/scrollStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none"
+            android:paddingHorizontal="8dp">
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chipStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                app:singleLine="true"
+                app:chipSpacingHorizontal="6dp"
+                app:selectionRequired="false" />
+        </HorizontalScrollView>
+
+        <!-- 第二行: 搜索 + 排序/分组/筛选 -->
+        <LinearLayout
+            android:id="@+id/rowToolbar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="6dp">
+
+            <EditText
+                android:id="@+id/etSearch"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:hint="@string/hint_search"
+                android:imeOptions="actionSearch"
+                android:inputType="text"
+                android:background="@drawable/bg_input"
+                android:paddingHorizontal="12dp"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/tvSort"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:padding="8dp"
+                android:background="@drawable/bg_chip"
+                android:text="时间 ↑"
+                android:textSize="12sp"
+                android:textColor="@color/ink2" />
+
+            <TextView
+                android:id="@+id/tvGroup"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:padding="8dp"
+                android:background="@drawable/bg_chip"
+                android:text="按日期"
+                android:textSize="12sp"
+                android:textColor="@color/ink2" />
+
+            <ImageButton
+                android:id="@+id/btnFilter"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="筛选"
+                app:srcCompat="@drawable/ic_filter"
+                android:scaleType="centerInside" />
+        </LinearLayout>
+
+        <!-- 列表 -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvList"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:paddingBottom="84dp"
+            android:paddingHorizontal="10dp"
+            android:visibility="gone" />
+
+        <!-- 时段库列表 -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvPeriods"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:paddingBottom="84dp"
+            android:paddingHorizontal="10dp"
+            android:visibility="gone" />
+
+        <!-- 轨迹(今日时段泳道: 时段头 + 挂靠待办) -->
+        <ScrollView
+            android:id="@+id/traceScroll"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:visibility="gone"
+            android:paddingHorizontal="10dp">
+
+            <LinearLayout
+                android:id="@+id/traceBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingBottom="84dp" />
+        </ScrollView>
+
+        <TextView
+            android:id="@+id/tvEmpty"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="@string/empty_list"
+            android:textColor="@color/ink2"
+            android:textSize="14sp"
+            android:lineSpacingExtra="6dp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fabAdd"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="20dp"
+        android:contentDescription="新建待办"
+        app:srcCompat="@drawable/ic_add"
+        app:backgroundTint="@color/primary"
+        app:tint="@android:color/white" />
+</FrameLayout>
